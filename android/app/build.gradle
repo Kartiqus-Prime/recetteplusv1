@@ -1,0 +1,80 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id 'com.google.gms.google-services'
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
+android {
+    namespace "com.recetteplus.app"
+    compileSdk = 35  // Mis à jour vers SDK 35
+    ndkVersion = "27.0.12077973"  // Mis à jour vers NDK 27
+
+    compileOptions {
+        // Support Java 17+ pour les nouvelles versions
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        // Activer le desugaring pour les APIs modernes
+        coreLibraryDesugaringEnabled true
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'  // Mis à jour vers Java 17
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        applicationId "com.recetteplus.app"
+        minSdkVersion 21  // Minimum requis pour les notifications
+        targetSdkVersion 35  // Mis à jour vers 35
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+        multiDexEnabled true
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    // Firebase - Version mise à jour
+    implementation platform('com.google.firebase:firebase-bom:33.6.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    
+    // Support pour les APIs modernes - Version mise à jour
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.2'
+    
+    // Multidex pour les gros projets
+    implementation 'androidx.multidex:multidex:2.0.1'
+    
+    // Google Play Services - Version mise à jour
+    implementation 'com.google.android.gms:play-services-auth:21.2.0'
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "361640124056",
+    "project_id": "recette-plus-app",
+    "storage_bucket": "recette-plus-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:361640124056:android:7b286e4e2eb3b21a9c7aed",
+        "android_client_info": {
+          "package_name": "com.recetteplus.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyATXO_LRFOa-zLgYioMl7lilyiNw6cfXSQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -2,23 +2,24 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'base_notification_service.dart';
 
 // Handler pour les messages en arrière-plan
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print('📱 Message reçu en arrière-plan: ${message.messageId}');
+  BaseNotificationService.logInfo(
+      '📱 Message reçu en arrière-plan: ${message.messageId}');
 
   // Traiter le message en arrière-plan
   await PushNotificationService._showNotification(message);
 }
 
-class PushNotificationService {
+class PushNotificationService extends BaseNotificationService {
   static final FirebaseMessaging _firebaseMessaging =
       FirebaseMessaging.instance;
   static final FlutterLocalNotificationsPlugin _localNotifications =
@@ -31,11 +32,12 @@ class PushNotificationService {
   /// Initialiser le service de notifications push
   static Future<void> initialize() async {
     try {
-      print('🚀 Initialisation des notifications push...');
+      BaseNotificationService.logInfo(
+          '🚀 Initialisation des notifications push...');
 
       // Initialiser Firebase
       await Firebase.initializeApp();
-      print('✅ Firebase initialisé');
+      BaseNotificationService.logSuccess('✅ Firebase initialisé');
 
       // Configurer le handler pour les messages en arrière-plan
       FirebaseMessaging.onBackgroundMessage(
@@ -43,23 +45,26 @@ class PushNotificationService {
 
       // Initialiser les notifications locales
       await _initializeLocalNotifications();
-      print('✅ Notifications locales initialisées');
+      BaseNotificationService.logSuccess(
+          '✅ Notifications locales initialisées');
 
       // Demander les permissions
       await _requestPermissions();
-      print('✅ Permissions demandées');
+      BaseNotificationService.logSuccess('✅ Permissions demandées');
 
       // Configurer les listeners
       await _setupMessageHandlers();
-      print('✅ Listeners configurés');
+      BaseNotificationService.logSuccess('✅ Listeners configurés');
 
       // Obtenir et sauvegarder le token FCM
       await _getFCMToken();
-      print('✅ Token FCM obtenu');
+      BaseNotificationService.logSuccess('✅ Token FCM obtenu');
 
-      print('✅ Notifications push initialisées avec succès');
+      BaseNotificationService.logSuccess(
+          '✅ Notifications push initialisées avec succès');
     } catch (e) {
-      print('❌ Erreur lors de l\'initialisation des notifications: $e');
+      BaseNotificationService.logError(
+          '❌ Erreur lors de l\'initialisation des notifications: $e');
     }
   }
 
@@ -84,32 +89,12 @@ class PushNotificationService {
       onDidReceiveNotificationResponse: _onNotificationTap,
     );
 
-    print('🔔 Notifications locales initialisées: $initialized');
+    BaseNotificationService.logInfo(
+        '🔔 Notifications locales initialisées: $initialized');
 
     // Créer le canal de notification Android
     if (Platform.isAndroid) {
-      await _createNotificationChannel();
-    }
-  }
-
-  /// Créer le canal de notification Android
-  static Future<void> _createNotificationChannel() async {
-    const channel = AndroidNotificationChannel(
-      'recette_plus_notifications',
-      'Recette+ Notifications',
-      description: 'Notifications de l\'application Recette+',
-      importance: Importance.high,
-      enableVibration: true,
-      playSound: true,
-    );
-
-    final androidPlugin =
-        _localNotifications.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-
-    if (androidPlugin != null) {
-      await androidPlugin.createNotificationChannel(channel);
-      print('📢 Canal de notification créé: ${channel.id}');
+      await BaseNotificationService.createNotificationChannel();
     }
   }
 
@@ -123,20 +108,24 @@ class PushNotificationService {
       provisional: false,
     );
 
-    print('🔐 Permissions Firebase: ${settings.authorizationStatus}');
+    BaseNotificationService.logInfo(
+        '🔐 Permissions Firebase: ${settings.authorizationStatus}');
 
     // Permissions système Android
     if (Platform.isAndroid) {
       final status = await Permission.notification.request();
-      print('🔐 Permissions Android: $status');
+      BaseNotificationService.logInfo('🔐 Permissions Android: $status');
 
       // Vérifier si les permissions sont accordées
       if (status.isDenied) {
-        print('⚠️ Permissions de notification refusées');
+        BaseNotificationService.logWarning(
+            '⚠️ Permissions de notification refusées');
       } else if (status.isPermanentlyDenied) {
-        print('⚠️ Permissions de notification définitivement refusées');
+        BaseNotificationService.logWarning(
+            '⚠️ Permissions de notification définitivement refusées');
       } else {
-        print('✅ Permissions de notification accordées');
+        BaseNotificationService.logSuccess(
+            '✅ Permissions de notification accordées');
       }
     }
   }
@@ -145,15 +134,17 @@ class PushNotificationService {
   static Future<void> _setupMessageHandlers() async {
     // Messages reçus quand l'app est au premier plan
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('📱 Message reçu au premier plan: ${message.notification?.title}');
-      print('📱 Corps du message: ${message.notification?.body}');
-      print('📱 Données: ${message.data}');
+      BaseNotificationService.logInfo(
+          '📱 Message reçu au premier plan: ${message.notification?.title}');
+      BaseNotificationService.logInfo(
+          '📱 Corps du message: ${message.notification?.body}');
+      BaseNotificationService.logInfo('📱 Données: ${message.data}');
       _showNotification(message);
     });
 
     // Messages reçus quand l'app est en arrière-plan mais pas fermée
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      print(
+      BaseNotificationService.logInfo(
           '📱 App ouverte depuis notification: ${message.notification?.title}');
       _handleNotificationTap(message.data);
     });
@@ -162,7 +153,7 @@ class PushNotificationService {
     RemoteMessage? initialMessage =
         await _firebaseMessaging.getInitialMessage();
     if (initialMessage != null) {
-      print(
+      BaseNotificationService.logInfo(
           '📱 App lancée depuis notification: ${initialMessage.notification?.title}');
       _handleNotificationTap(initialMessage.data);
     }
@@ -173,7 +164,8 @@ class PushNotificationService {
     try {
       String? token = await _firebaseMessaging.getToken();
       if (token != null) {
-        print('🔑 Token FCM: ${token.substring(0, 50)}...');
+        BaseNotificationService.logInfo(
+            '🔑 Token FCM: ${token.substring(0, 50)}...');
         await _saveTokenToDatabase(token);
 
         // Écouter les changements de token
@@ -181,82 +173,47 @@ class PushNotificationService {
       }
       return token;
     } catch (e) {
-      print('❌ Erreur lors de l\'obtention du token: $e');
+      BaseNotificationService.logError(
+          '❌ Erreur lors de l\'obtention du token: $e');
       return null;
     }
   }
 
-  /// Sauvegarder le token dans la base de données
+  /// Sauvegarder le token dans la base de données de manière sécurisée
   static Future<void> _saveTokenToDatabase(String token) async {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) {
-        print('⚠️ Utilisateur non connecté, token non sauvegardé');
-        return;
-      }
-
-      await _supabase.from('user_fcm_tokens').upsert({
-        'user_id': user.id,
-        'fcm_token': token,
-        'platform': Platform.isAndroid ? 'android' : 'ios',
-        'updated_at': DateTime.now().toIso8601String(),
-      });
-
-      print('✅ Token FCM sauvegardé en base pour ${user.email}');
-    } catch (e) {
-      print('❌ Erreur sauvegarde token: $e');
+    final success = await BaseNotificationService.saveTokenSecurely(token);
+    if (success) {
+      BaseNotificationService.logSuccess(
+          '✅ Token FCM sauvegardé de manière sécurisée');
+    } else {
+      BaseNotificationService.logError('❌ Échec sauvegarde sécurisée token');
     }
   }
 
-  /// Afficher une notification locale avec votre icône
+  /// Afficher une notification locale avec configuration optimisée
   static Future<void> _showNotification(RemoteMessage message) async {
     try {
-      print('🔔 Tentative d\'affichage de notification...');
-
-      const androidDetails = AndroidNotificationDetails(
-        'recette_plus_notifications',
-        'Recette+ Notifications',
-        channelDescription: 'Notifications de l\'application Recette+',
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@mipmap/ic_notification', // Votre icône personnalisée
-        largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_notification'),
-        color: Color(0xFF4CAF50),
-        enableVibration: true,
-        playSound: true,
-        showWhen: true,
-        when: null,
-        styleInformation: BigTextStyleInformation(''),
-      );
-
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      );
-
-      const details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
+      BaseNotificationService.logInfo(
+          '🔔 Tentative d\'affichage de notification...');
 
       final title = message.notification?.title ?? 'Recette+';
       final body = message.notification?.body ?? 'Nouvelle notification';
       final id = message.hashCode;
 
-      print('🔔 Affichage notification: $title - $body');
+      BaseNotificationService.logInfo(
+          '🔔 Affichage notification: $title - $body');
 
       await _localNotifications.show(
         id,
         title,
         body,
-        details,
+        BaseNotificationService.notificationDetails,
         payload: jsonEncode(message.data),
       );
 
-      print('✅ Notification affichée avec succès');
+      BaseNotificationService.logSuccess('✅ Notification affichée avec succès');
     } catch (e) {
-      print('❌ Erreur affichage notification: $e');
+      BaseNotificationService.logError('❌ Erreur affichage notification: $e');
     }
   }
 
@@ -264,7 +221,8 @@ class PushNotificationService {
   static Future<void> showNotificationFromData(
       Map<String, dynamic> data) async {
     try {
-      print('🔔 Affichage notification depuis données Supabase...');
+      BaseNotificationService.logInfo(
+          '🔔 Affichage notification depuis données Supabase...');
 
       const androidDetails = AndroidNotificationDetails(
         'recette_plus_notifications',
@@ -297,7 +255,8 @@ class PushNotificationService {
       final body = notification['body'] ?? 'Nouvelle notification';
       final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
-      print('🔔 Affichage notification Supabase: $title - $body');
+      BaseNotificationService.logInfo(
+          '🔔 Affichage notification Supabase: $title - $body');
 
       await _localNotifications.show(
         id,
@@ -307,28 +266,31 @@ class PushNotificationService {
         payload: jsonEncode(data['data'] ?? {}),
       );
 
-      print('✅ Notification Supabase affichée avec succès');
+      BaseNotificationService.logSuccess(
+          '✅ Notification Supabase affichée avec succès');
     } catch (e) {
-      print('❌ Erreur affichage notification Supabase: $e');
+      BaseNotificationService.logError(
+          '❌ Erreur affichage notification Supabase: $e');
     }
   }
 
   /// Gérer le tap sur une notification locale
   static void _onNotificationTap(NotificationResponse response) {
-    print('👆 Notification tappée: ${response.payload}');
+    BaseNotificationService.logInfo(
+        '👆 Notification tappée: ${response.payload}');
     if (response.payload != null) {
       try {
         final data = jsonDecode(response.payload!);
         _handleNotificationTap(data);
       } catch (e) {
-        print('❌ Erreur parsing payload: $e');
+        BaseNotificationService.logError('❌ Erreur parsing payload: $e');
       }
     }
   }
 
   /// Gérer la navigation depuis une notification
   static void _handleNotificationTap(Map<String, dynamic> data) {
-    print('🔗 Navigation depuis notification: $data');
+    BaseNotificationService.logInfo('🔗 Navigation depuis notification: $data');
 
     // Utiliser le callback si défini
     if (onNotificationTap != null) {
@@ -341,7 +303,8 @@ class PushNotificationService {
   /// Envoyer une notification de test LOCALE avec votre icône
   static Future<void> sendTestLocalNotification() async {
     try {
-      print('🧪 Envoi notification locale de test...');
+      BaseNotificationService.logInfo(
+          '🧪 Envoi notification locale de test...');
 
       const androidDetails = AndroidNotificationDetails(
         'recette_plus_notifications',
@@ -378,9 +341,11 @@ class PushNotificationService {
         payload: jsonEncode({'type': 'test', 'route': '/notifications'}),
       );
 
-      print('✅ Notification locale de test envoyée avec icône personnalisée');
+      BaseNotificationService.logSuccess(
+          '✅ Notification locale de test envoyée avec icône personnalisée');
     } catch (e) {
-      print('❌ Erreur envoi notification locale: $e');
+      BaseNotificationService.logError(
+          '❌ Erreur envoi notification locale: $e');
     }
   }
 
@@ -412,9 +377,9 @@ class PushNotificationService {
       status['user_connected'] = user != null;
       status['user_email'] = user?.email ?? 'null';
 
-      print('📊 Status des notifications: $status');
+      BaseNotificationService.logInfo('📊 Status des notifications: $status');
     } catch (e) {
-      print('❌ Erreur vérification status: $e');
+      BaseNotificationService.logError('❌ Erreur vérification status: $e');
       status['error'] = e.toString();
     }
 
@@ -428,15 +393,57 @@ class PushNotificationService {
 
   /// Supprimer le token de la base de données (déconnexion)
   static Future<void> removeToken() async {
+    await BaseNotificationService.removeTokenSecurely();
+  }
+
+  /// Vérifier les permissions de manière détaillée
+  static Future<Map<String, dynamic>> checkDetailedPermissions() async {
+    final permissions = <String, dynamic>{};
+
     try {
+      // Permissions Firebase
+      final settings = await _firebaseMessaging.getNotificationSettings();
+      permissions['firebase'] = {
+        'status': settings.authorizationStatus.toString(),
+        'granted':
+            settings.authorizationStatus == AuthorizationStatus.authorized,
+        'alert': settings.alert.toString(),
+        'badge': settings.badge.toString(),
+        'sound': settings.sound.toString(),
+      };
+
+      // Permissions Android
+      if (Platform.isAndroid) {
+        final permission = await Permission.notification.status;
+        permissions['android'] = {
+          'status': permission.toString(),
+          'granted': permission.isGranted,
+          'denied': permission.isDenied,
+          'permanently_denied': permission.isPermanentlyDenied,
+        };
+      }
+
+      // Token FCM
+      final token = await _firebaseMessaging.getToken();
+      permissions['fcm_token'] = {
+        'available': token != null,
+        'preview': token?.substring(0, 20) ?? 'null',
+      };
+
+      // Utilisateur connecté
       final user = _supabase.auth.currentUser;
-      if (user == null) return;
+      permissions['user'] = {
+        'connected': user != null,
+        'email': user?.email ?? 'null',
+        'id': user?.id ?? 'null',
+      };
 
-      await _supabase.from('user_fcm_tokens').delete().eq('user_id', user.id);
-
-      print('🗑️ Token FCM supprimé');
+      BaseNotificationService.logInfo('📊 Permissions détaillées vérifiées');
+      return permissions;
     } catch (e) {
-      print('❌ Erreur suppression token: $e');
+      BaseNotificationService.logError(
+          '❌ Erreur vérification permissions détaillées: $e');
+      return {'error': e.toString()};
     }
   }
 }

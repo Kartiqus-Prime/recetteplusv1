@@ -44,9 +44,7 @@ class OrdersService {
 
   Future<Order?> getOrderById(String orderId) async {
     try {
-      final response = await supabase
-          .from('orders')
-          .select('''
+      final response = await supabase.from('orders').select('''
             id,
             user_id,
             total,
@@ -66,10 +64,7 @@ class OrdersService {
               price,
               currency
             )
-          ''')
-          .eq('id', orderId)
-          .filter('deleted_at', 'is', null)
-          .single();
+          ''').eq('id', orderId).filter('deleted_at', 'is', null).single();
 
       return Order.fromJson(response);
     } catch (e) {

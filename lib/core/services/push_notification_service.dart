@@ -1,78 +1,55 @@
 import 'dart:convert';
-import 'dart:io';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'base_notification_service.dart';
 
-// Handler pour les messages en arrière-plan
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  BaseNotificationService.logInfo(
-      '📱 Message reçu en arrière-plan: ${message.messageId}');
-
-  // Traiter le message en arrière-plan
-  await PushNotificationService._showNotification(message);
-}
-
-class PushNotificationService extends BaseNotificationService {
-  static final FirebaseMessaging _firebaseMessaging =
-      FirebaseMessaging.instance;
-  static final FlutterLocalNotificationsPlugin _localNotifications =
+class PushNotificationService {
+  static final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
+  static final FlutterLocalNotificationsPlugin _localNotifications = 
       FlutterLocalNotificationsPlugin();
-  static final SupabaseClient _supabase = Supabase.instance.client;
-
-  // Callback pour la navigation
+  
+  static String? _fcmToken;
   static Function(String)? onNotificationTap;
 
   /// Initialiser le service de notifications push
   static Future<void> initialize() async {
     try {
-      BaseNotificationService.logInfo(
-          '🚀 Initialisation des notifications push...');
-
-      // Initialiser Firebase
-      await Firebase.initializeApp();
-      BaseNotificationService.logSuccess('✅ Firebase initialisé');
-
-      // Configurer le handler pour les messages en arrière-plan
-      FirebaseMessaging.onBackgroundMessage(
-          _firebaseMessagingBackgroundHandler);
-
-      // Initialiser les notifications locales
-      await _initializeLocalNotifications();
-      BaseNotificationService.logSuccess(
-          '✅ Notifications locales initialisées');
+      print('🔔 Initialisation des notifications push...');
 
       // Demander les permissions
       await _requestPermissions();
-      BaseNotificationService.logSuccess('✅ Permissions demandées');
 
-      // Configurer les listeners
-      await _setupMessageHandlers();
-      BaseNotificationService.logSuccess('✅ Listeners configurés');
+      // Initialiser les notifications locales
+      await _initializeLocalNotifications();
 
-      // Obtenir et sauvegarder le token FCM
+      // Obtenir le token FCM
       await _getFCMToken();
-      BaseNotificationService.logSuccess('✅ Token FCM obtenu');
 
-      BaseNotificationService.logSuccess(
-          '✅ Notifications push initialisées avec succès');
+      // Configurer les handlers
+      _setupMessageHandlers();
+
+      print('✅ Notifications push initialisées avec succès');
     } catch (e) {
-      BaseNotificationService.logError(
-          '❌ Erreur lors de l\'initialisation des notifications: $e');
+      print('❌ Erreur initialisation notifications push: $e');
     }
+  }
+
+  /// Demander les permissions de notification
+  static Future<void> _requestPermissions() async {
+    final settings = await _firebaseMessaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
+
+    print('📱 Permissions notifications: ${settings.authorizationStatus}');
   }
 
   /// Initialiser les notifications locales
   static Future<void> _initializeLocalNotifications() async {
-    // Utiliser votre icône personnalisée
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_notification');
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -84,366 +61,172 @@ class PushNotificationService extends BaseNotificationService {
       iOS: iosSettings,
     );
 
-    final initialized = await _localNotifications.initialize(
+    await _localNotifications.initialize(
       initSettings,
-      onDidReceiveNotificationResponse: _onNotificationTap,
+      onDidReceiveNotificationResponse: _onNotificationTapped,
     );
 
-    BaseNotificationService.logInfo(
-        '🔔 Notifications locales initialisées: $initialized');
-
     // Créer le canal de notification Android
-    if (Platform.isAndroid) {
-      await BaseNotificationService.createNotificationChannel();
+    await _createNotificationChannel();
+  }
+
+  /// Créer le canal de notification Android
+  static Future<void> _createNotificationChannel() async {
+    const channel = AndroidNotificationChannel(
+      'recetteplus_notifications',
+      'Recette+ Notifications',
+      description: 'Notifications de l\'application Recette+',
+      importance: Importance.high,
+      playSound: true,
+    );
+
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+  }
+
+  /// Obtenir le token FCM
+  static Future<void> _getFCMToken() async {
+    try {
+      _fcmToken = await _firebaseMessaging.getToken();
+      print('🔑 Token FCM: ${_fcmToken?.substring(0, 20)}...');
+
+      // Sauvegarder le token en base
+      await _saveTokenToDatabase();
+
+      // Écouter les changements de token
+      _firebaseMessaging.onTokenRefresh.listen((newToken) {
+        _fcmToken = newToken;
+        _saveTokenToDatabase();
+      });
+    } catch (e) {
+      print('❌ Erreur récupération token FCM: $e');
     }
   }
 
-  /// Demander les permissions
-  static Future<void> _requestPermissions() async {
-    // Permissions Firebase
-    NotificationSettings settings = await _firebaseMessaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
-
-    BaseNotificationService.logInfo(
-        '🔐 Permissions Firebase: ${settings.authorizationStatus}');
-
-    // Permissions système Android
-    if (Platform.isAndroid) {
-      final status = await Permission.notification.request();
-      BaseNotificationService.logInfo('🔐 Permissions Android: $status');
-
-      // Vérifier si les permissions sont accordées
-      if (status.isDenied) {
-        BaseNotificationService.logWarning(
-            '⚠️ Permissions de notification refusées');
-      } else if (status.isPermanentlyDenied) {
-        BaseNotificationService.logWarning(
-            '⚠️ Permissions de notification définitivement refusées');
-      } else {
-        BaseNotificationService.logSuccess(
-            '✅ Permissions de notification accordées');
+  /// Sauvegarder le token en base de données
+  static Future<void> _saveTokenToDatabase() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null && _fcmToken != null) {
+        await Supabase.instance.client
+            .from('user_tokens')
+            .upsert({
+              'user_id': user.id,
+              'fcm_token': _fcmToken,
+              'platform': defaultTargetPlatform.name,
+              'updated_at': DateTime.now().toIso8601String(),
+            });
+        print('💾 Token FCM sauvegardé en base');
       }
+    } catch (e) {
+      print('❌ Erreur sauvegarde token: $e');
     }
   }
 
   /// Configurer les handlers de messages
-  static Future<void> _setupMessageHandlers() async {
-    // Messages reçus quand l'app est au premier plan
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      BaseNotificationService.logInfo(
-          '📱 Message reçu au premier plan: ${message.notification?.title}');
-      BaseNotificationService.logInfo(
-          '📱 Corps du message: ${message.notification?.body}');
-      BaseNotificationService.logInfo('📱 Données: ${message.data}');
-      _showNotification(message);
-    });
+  static void _setupMessageHandlers() {
+    // Message reçu quand l'app est au premier plan
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
 
-    // Messages reçus quand l'app est en arrière-plan mais pas fermée
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      BaseNotificationService.logInfo(
-          '📱 App ouverte depuis notification: ${message.notification?.title}');
-      _handleNotificationTap(message.data);
-    });
+    // Message tapé quand l'app est en arrière-plan
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleBackgroundMessageTap);
 
-    // Vérifier si l'app a été ouverte depuis une notification
-    RemoteMessage? initialMessage =
-        await _firebaseMessaging.getInitialMessage();
-    if (initialMessage != null) {
-      BaseNotificationService.logInfo(
-          '📱 App lancée depuis notification: ${initialMessage.notification?.title}');
-      _handleNotificationTap(initialMessage.data);
-    }
+    // Vérifier si l'app a été ouverte via une notification
+    _checkInitialMessage();
   }
 
-  /// Obtenir et sauvegarder le token FCM
-  static Future<String?> _getFCMToken() async {
-    try {
-      String? token = await _firebaseMessaging.getToken();
-      if (token != null) {
-        BaseNotificationService.logInfo(
-            '🔑 Token FCM: ${token.substring(0, 50)}...');
-        await _saveTokenToDatabase(token);
+  /// Gérer les messages au premier plan
+  static Future<void> _handleForegroundMessage(RemoteMessage message) async {
+    print('📨 Message reçu au premier plan: ${message.notification?.title}');
 
-        // Écouter les changements de token
-        _firebaseMessaging.onTokenRefresh.listen(_saveTokenToDatabase);
-      }
-      return token;
-    } catch (e) {
-      BaseNotificationService.logError(
-          '❌ Erreur lors de l\'obtention du token: $e');
-      return null;
-    }
+    // Afficher une notification locale
+    await _showLocalNotification(message);
   }
 
-  /// Sauvegarder le token dans la base de données de manière sécurisée
-  static Future<void> _saveTokenToDatabase(String token) async {
-    final success = await BaseNotificationService.saveTokenSecurely(token);
-    if (success) {
-      BaseNotificationService.logSuccess(
-          '✅ Token FCM sauvegardé de manière sécurisée');
-    } else {
-      BaseNotificationService.logError('❌ Échec sauvegarde sécurisée token');
-    }
+  /// Afficher une notification locale
+  static Future<void> _showLocalNotification(RemoteMessage message) async {
+    final notification = message.notification;
+    if (notification == null) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'recetteplus_notifications',
+      'Recette+ Notifications',
+      channelDescription: 'Notifications de l\'application Recette+',
+      importance: Importance.high,
+      priority: Priority.high,
+      // ✅ Utiliser l'icône par défaut de l'app
+      icon: '@mipmap/ic_launcher',
+      // ✅ Pas d'icône supplémentaire à droite
+      largeIcon: null,
+      showWhen: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _localNotifications.show(
+      message.hashCode,
+      notification.title,
+      notification.body,
+      details,
+      payload: jsonEncode(message.data),
+    );
   }
 
-  /// Afficher une notification locale avec configuration optimisée
-  static Future<void> _showNotification(RemoteMessage message) async {
-    try {
-      BaseNotificationService.logInfo(
-          '🔔 Tentative d\'affichage de notification...');
-
-      final title = message.notification?.title ?? 'Recette+';
-      final body = message.notification?.body ?? 'Nouvelle notification';
-      final id = message.hashCode;
-
-      BaseNotificationService.logInfo(
-          '🔔 Affichage notification: $title - $body');
-
-      await _localNotifications.show(
-        id,
-        title,
-        body,
-        BaseNotificationService.notificationDetails,
-        payload: jsonEncode(message.data),
-      );
-
-      BaseNotificationService.logSuccess('✅ Notification affichée avec succès');
-    } catch (e) {
-      BaseNotificationService.logError('❌ Erreur affichage notification: $e');
-    }
+  /// Gérer le tap sur notification en arrière-plan
+  static void _handleBackgroundMessageTap(RemoteMessage message) {
+    print('👆 Notification tappée (arrière-plan): ${message.notification?.title}');
+    _navigateFromNotification(message.data);
   }
 
-  /// Afficher une notification à partir de données (pour Supabase realtime)
-  static Future<void> showNotificationFromData(
-      Map<String, dynamic> data) async {
-    try {
-      BaseNotificationService.logInfo(
-          '🔔 Affichage notification depuis données Supabase...');
-
-      const androidDetails = AndroidNotificationDetails(
-        'recette_plus_notifications',
-        'Recette+ Notifications',
-        channelDescription: 'Notifications temps réel de Recette+',
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@mipmap/ic_notification', // Votre icône personnalisée
-        largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_notification'),
-        color: Color(0xFF4CAF50),
-        enableVibration: true,
-        playSound: true,
-        showWhen: true,
-        styleInformation: BigTextStyleInformation(''),
-      );
-
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      );
-
-      const details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
-
-      final notification = data['notification'] ?? {};
-      final title = notification['title'] ?? 'Recette+';
-      final body = notification['body'] ?? 'Nouvelle notification';
-      final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
-      BaseNotificationService.logInfo(
-          '🔔 Affichage notification Supabase: $title - $body');
-
-      await _localNotifications.show(
-        id,
-        title,
-        body,
-        details,
-        payload: jsonEncode(data['data'] ?? {}),
-      );
-
-      BaseNotificationService.logSuccess(
-          '✅ Notification Supabase affichée avec succès');
-    } catch (e) {
-      BaseNotificationService.logError(
-          '❌ Erreur affichage notification Supabase: $e');
-    }
-  }
-
-  /// Gérer le tap sur une notification locale
-  static void _onNotificationTap(NotificationResponse response) {
-    BaseNotificationService.logInfo(
-        '👆 Notification tappée: ${response.payload}');
+  /// Gérer le tap sur notification locale
+  static void _onNotificationTapped(NotificationResponse response) {
+    print('👆 Notification locale tappée');
     if (response.payload != null) {
-      try {
-        final data = jsonDecode(response.payload!);
-        _handleNotificationTap(data);
-      } catch (e) {
-        BaseNotificationService.logError('❌ Erreur parsing payload: $e');
-      }
+      final data = jsonDecode(response.payload!);
+      _navigateFromNotification(data);
     }
   }
 
-  /// Gérer la navigation depuis une notification
-  static void _handleNotificationTap(Map<String, dynamic> data) {
-    BaseNotificationService.logInfo('🔗 Navigation depuis notification: $data');
+  /// Vérifier le message initial
+  static Future<void> _checkInitialMessage() async {
+    final initialMessage = await _firebaseMessaging.getInitialMessage();
+    if (initialMessage != null) {
+      print('🚀 App ouverte via notification: ${initialMessage.notification?.title}');
+      _navigateFromNotification(initialMessage.data);
+    }
+  }
 
-    // Utiliser le callback si défini
-    if (onNotificationTap != null) {
-      final route = data['route'] ?? '/notifications';
+  /// Naviguer depuis une notification
+  static void _navigateFromNotification(Map<String, dynamic> data) {
+    final route = data['route'] as String?;
+    if (route != null && onNotificationTap != null) {
       onNotificationTap!(route);
-      return;
     }
-  }
-
-  /// Envoyer une notification de test LOCALE avec votre icône
-  static Future<void> sendTestLocalNotification() async {
-    try {
-      BaseNotificationService.logInfo(
-          '🧪 Envoi notification locale de test...');
-
-      const androidDetails = AndroidNotificationDetails(
-        'recette_plus_notifications',
-        'Recette+ Notifications',
-        channelDescription: 'Notifications de test',
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@mipmap/ic_notification', // Votre icône personnalisée
-        largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_notification'),
-        color: Color(0xFF4CAF50),
-        enableVibration: true,
-        playSound: true,
-        styleInformation: BigTextStyleInformation(
-            'Ceci est une notification de test avec votre logo personnalisé !'),
-      );
-
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-      );
-
-      const details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
-
-      final now = DateTime.now();
-      await _localNotifications.show(
-        now.millisecondsSinceEpoch ~/ 1000,
-        '🧪 Test Recette+ avec Logo',
-        'Notification avec votre icône personnalisée à ${now.hour}:${now.minute.toString().padLeft(2, '0')}',
-        details,
-        payload: jsonEncode({'type': 'test', 'route': '/notifications'}),
-      );
-
-      BaseNotificationService.logSuccess(
-          '✅ Notification locale de test envoyée avec icône personnalisée');
-    } catch (e) {
-      BaseNotificationService.logError(
-          '❌ Erreur envoi notification locale: $e');
-    }
-  }
-
-  /// Vérifier les permissions et l'état des notifications
-  static Future<Map<String, dynamic>> checkNotificationStatus() async {
-    final status = <String, dynamic>{};
-
-    try {
-      // Vérifier les permissions Android
-      if (Platform.isAndroid) {
-        final permission = await Permission.notification.status;
-        status['android_permission'] = permission.toString();
-        status['android_granted'] = permission.isGranted;
-      }
-
-      // Vérifier les permissions Firebase
-      final settings = await _firebaseMessaging.getNotificationSettings();
-      status['firebase_permission'] = settings.authorizationStatus.toString();
-      status['firebase_granted'] =
-          settings.authorizationStatus == AuthorizationStatus.authorized;
-
-      // Vérifier le token FCM
-      final token = await _firebaseMessaging.getToken();
-      status['fcm_token'] = token != null;
-      status['fcm_token_preview'] = token?.substring(0, 20) ?? 'null';
-
-      // Vérifier l'utilisateur connecté
-      final user = _supabase.auth.currentUser;
-      status['user_connected'] = user != null;
-      status['user_email'] = user?.email ?? 'null';
-
-      BaseNotificationService.logInfo('📊 Status des notifications: $status');
-    } catch (e) {
-      BaseNotificationService.logError('❌ Erreur vérification status: $e');
-      status['error'] = e.toString();
-    }
-
-    return status;
   }
 
   /// Obtenir le token FCM actuel
-  static Future<String?> getCurrentToken() async {
-    return await _firebaseMessaging.getToken();
-  }
+  static String? get fcmToken => _fcmToken;
 
-  /// Supprimer le token de la base de données (déconnexion)
-  static Future<void> removeToken() async {
-    await BaseNotificationService.removeTokenSecurely();
-  }
+  /// Envoyer une notification de test
+  static Future<void> sendTestNotification() async {
+    final message = RemoteMessage(
+      notification: const RemoteNotification(
+        title: '🧪 Test Notification',
+        body: 'Ceci est une notification de test depuis Recette+',
+      ),
+      data: {'route': '/home', 'type': 'test'},
+    );
 
-  /// Vérifier les permissions de manière détaillée
-  static Future<Map<String, dynamic>> checkDetailedPermissions() async {
-    final permissions = <String, dynamic>{};
-
-    try {
-      // Permissions Firebase
-      final settings = await _firebaseMessaging.getNotificationSettings();
-      permissions['firebase'] = {
-        'status': settings.authorizationStatus.toString(),
-        'granted':
-            settings.authorizationStatus == AuthorizationStatus.authorized,
-        'alert': settings.alert.toString(),
-        'badge': settings.badge.toString(),
-        'sound': settings.sound.toString(),
-      };
-
-      // Permissions Android
-      if (Platform.isAndroid) {
-        final permission = await Permission.notification.status;
-        permissions['android'] = {
-          'status': permission.toString(),
-          'granted': permission.isGranted,
-          'denied': permission.isDenied,
-          'permanently_denied': permission.isPermanentlyDenied,
-        };
-      }
-
-      // Token FCM
-      final token = await _firebaseMessaging.getToken();
-      permissions['fcm_token'] = {
-        'available': token != null,
-        'preview': token?.substring(0, 20) ?? 'null',
-      };
-
-      // Utilisateur connecté
-      final user = _supabase.auth.currentUser;
-      permissions['user'] = {
-        'connected': user != null,
-        'email': user?.email ?? 'null',
-        'id': user?.id ?? 'null',
-      };
-
-      BaseNotificationService.logInfo('📊 Permissions détaillées vérifiées');
-      return permissions;
-    } catch (e) {
-      BaseNotificationService.logError(
-          '❌ Erreur vérification permissions détaillées: $e');
-      return {'error': e.toString()};
-    }
+    await _handleForegroundMessage(message);
   }
 }

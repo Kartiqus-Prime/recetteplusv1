@@ -16,7 +16,7 @@
         android:theme="@style/LaunchTheme"
         android:label="Recette+"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/launcher_icon"
         android:enableOnBackInvokedCallback="true"
         android:exported="true">
         

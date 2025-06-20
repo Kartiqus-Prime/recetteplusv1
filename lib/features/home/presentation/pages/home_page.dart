@@ -47,6 +47,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _loadUnreadNotificationsCount() async {
+    if (!mounted) return;
     final count = await _notificationsService.getUnreadCount();
     if (mounted) {
       setState(() {
@@ -134,12 +135,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           Row(
             children: [
               _buildActionButton(
+                key: ValueKey(
+                    'search_action_button_${DateTime.now().millisecondsSinceEpoch}'),
                 icon: Icons.search,
                 onPressed: () => _navigateToPage('/search'),
                 isDarkMode: isDarkMode,
               ),
               const SizedBox(width: 8),
               _buildActionButton(
+                key: ValueKey(
+                    'notifications_action_button_${DateTime.now().millisecondsSinceEpoch}'),
                 icon: Icons.notifications_outlined,
                 onPressed: () => _navigateToPage('/notifications'),
                 isDarkMode: isDarkMode,
@@ -153,12 +158,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildActionButton({
+    Key? key,
     required IconData icon,
     required VoidCallback onPressed,
     required bool isDarkMode,
     int notificationCount = 0,
   }) {
     return IconButton(
+      key: key,
       onPressed: onPressed,
       icon: Container(
         padding: const EdgeInsets.all(8),
@@ -277,6 +284,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     children: [
                       Expanded(
                         child: ElevatedButton(
+                          key: ValueKey(
+                              'explore_recipes_button_${DateTime.now().millisecondsSinceEpoch}'),
                           onPressed: () => _navigateToPage('/recipes'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryGreen,
@@ -295,7 +304,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ),
                       const SizedBox(width: 12),
                       OutlinedButton(
-                        onPressed: () => _navigateToPage('/products'),
+                        key: ValueKey(
+                            'shorts_button_${DateTime.now().millisecondsSinceEpoch}'),
+                        onPressed: () => _navigateToPage('/shorts'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppTheme.primaryOrange,
                           side: BorderSide(
@@ -306,7 +317,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Icon(Icons.shopping_basket_outlined),
+                        child: const Icon(Icons.play_circle_outlined),
                       ),
                     ],
                   ),
@@ -329,18 +340,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         'route': '/recipes',
       },
       {
-        'icon': Icons.shopping_basket_outlined,
-        'title': 'Ingrédients Frais',
-        'description': 'Commandez vos ingrédients en quelques clics',
+        'icon': Icons.videocam_outlined,
+        'title': 'Shorts Culinaires',
+        'description': 'Vidéos courtes pour apprendre rapidement',
         'color': AppTheme.primaryOrange,
-        'route': '/products',
+        'route': '/shorts',
       },
       {
-        'icon': Icons.videocam_outlined,
-        'title': 'Vidéos Tutorielles',
-        'description': 'Apprenez avec nos chefs expérimentés',
+        'icon': Icons.shopping_cart_outlined,
+        'title': 'Ingrédients sur Mesure',
+        'description': 'Commandez les ingrédients de vos recettes',
         'color': AppTheme.primaryBrown,
-        'route': '/shorts',
+        'route': '/recipes',
       },
     ];
 
@@ -366,7 +377,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             itemBuilder: (context, index) {
               final service = services[index];
               return _buildServiceCard(
-                key: ValueKey('service_$index'),
+                key: ValueKey(
+                    'home_service_card_${index}_${DateTime.now().millisecondsSinceEpoch}'),
                 icon: service['icon'] as IconData,
                 title: service['title'] as String,
                 description: service['description'] as String,
@@ -545,6 +557,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
+              key: ValueKey(
+                  'start_now_button_${DateTime.now().millisecondsSinceEpoch}'),
               onPressed: () => _navigateToPage('/profile'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,

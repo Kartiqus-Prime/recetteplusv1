@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../../core/models/recipe.dart';
 import '../../../../core/services/recipes_service.dart';
+import '../../../../core/models/recipe.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/time_formatter.dart';
-import 'recipe_detail_page.dart';
+import '../../../profile/presentation/pages/recipe_detail_page.dart';
 
 class RecipesPage extends StatefulWidget {
   const RecipesPage({super.key});
@@ -12,233 +12,132 @@ class RecipesPage extends StatefulWidget {
   State<RecipesPage> createState() => _RecipesPageState();
 }
 
-class _RecipesPageState extends State<RecipesPage>
-    with SingleTickerProviderStateMixin {
+class _RecipesPageState extends State<RecipesPage> {
   final RecipesService _recipesService = RecipesService();
+  List<Recipe> _recipes = [];
+  List<Recipe> _filteredRecipes = [];
+  bool _loading = true;
+  String _searchQuery = '';
+  String _selectedCategory = 'Toutes';
+  String _selectedDifficulty = 'Toutes';
+  String _selectedTime = 'Toutes';
+  bool _showOnlyFavorites = false;
 
-  List<Recipe>? _favoriteRecipes;
-  List<Recipe>? _allRecipes;
-  bool _isLoadingFavorites = true;
-  bool _isLoadingAll = true;
-  String? _errorFavorites;
-  String? _errorAll;
+  final List<String> _categories = [
+    'Toutes',
+    'Entrées',
+    'Plats principaux',
+    'Desserts',
+    'Boissons',
+    'Snacks'
+  ];
 
-  late TabController _tabController;
-  final TextEditingController _searchController = TextEditingController();
-  bool _isSearching = false;
-  List<Recipe>? _searchResults;
-  bool _isLoadingSearch = false;
+  final List<String> _difficulties = ['Toutes', 'Facile', 'Moyen', 'Difficile'];
 
-  // Filtres
-  String? _selectedCategory;
-  String? _selectedDifficulty;
-  RangeValues? _prepTimeRange;
-  bool _showFilters = false;
-  List<String> _categories = [];
-  List<String> _difficulties = ['Facile', 'Moyen', 'Difficile'];
-  RangeValues _timeRange = const RangeValues(0, 120);
-  double _maxPrepTime = 120;
+  final List<String> _timeRanges = [
+    'Toutes',
+    '< 30 min',
+    '30-60 min',
+    '> 60 min'
+  ];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _loadFavoriteRecipes();
-    _loadAllRecipes();
-    _loadCategories();
+    _loadRecipes();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
-    _searchController.dispose();
+    // Nettoyer les ressources si nécessaire
     super.dispose();
   }
 
-  Future<void> _loadCategories() async {
-    try {
-      setState(() {
-        _categories = [
-          'Entrée',
-          'Plat principal',
-          'Dessert',
-          'Boisson',
-          'Apéritif'
-        ];
-      });
-    } catch (e) {
-      // Gérer l'erreur
-    }
-  }
-
-  Future<void> _loadFavoriteRecipes() async {
-    if (mounted) {
-      setState(() {
-        _isLoadingFavorites = true;
-        _errorFavorites = null;
-      });
-    }
-
-    try {
-      final recipes = await _recipesService.getUserFavoriteRecipes();
-      if (mounted) {
-        setState(() {
-          _favoriteRecipes = recipes;
-          _isLoadingFavorites = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorFavorites = 'Impossible de charger les recettes favorites';
-          _isLoadingFavorites = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _loadAllRecipes() async {
-    if (mounted) {
-      setState(() {
-        _isLoadingAll = true;
-        _errorAll = null;
-      });
-    }
-
+  Future<void> _loadRecipes() async {
+    if (!mounted) return; // Correction ajoutée
+    setState(() => _loading = true);
     try {
       final recipes = await _recipesService.getAllRecipes();
-      if (mounted) {
-        setState(() {
-          _allRecipes = recipes;
-          _isLoadingAll = false;
-
-          // Déterminer le temps de préparation maximum pour le filtre
-          if (recipes.isNotEmpty) {
-            double maxTime = 120;
-            for (var recipe in recipes) {
-              if (recipe.totalTime != null) {
-                final minutes = TimeFormatter.extractMinutes(recipe.totalTime!);
-                if (minutes > maxTime) {
-                  maxTime = minutes.toDouble();
-                }
-              }
-            }
-            _maxPrepTime = maxTime;
-            _timeRange = RangeValues(0, maxTime);
-          }
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorAll = 'Impossible de charger les recettes';
-          _isLoadingAll = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _searchRecipes(String query) async {
-    if (query.isEmpty) {
+      if (!mounted) return; // Correction ajoutée
       setState(() {
-        _isSearching = false;
-        _searchResults = null;
+        _recipes = recipes;
+        _filteredRecipes = recipes;
+        _loading = false;
       });
-      return;
+    } catch (e) {
+      if (!mounted) return; // Correction ajoutée
+      setState(() => _loading = false);
+      if (mounted) {
+        // Correction ajoutée
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
     }
+  }
+
+  void _filterRecipes() {
+    if (!mounted) return; // Correction ajoutée
 
     setState(() {
-      _isSearching = true;
-      _isLoadingSearch = true;
-    });
+      _filteredRecipes = _recipes.where((recipe) {
+        // Filtre par recherche
+        if (_searchQuery.isNotEmpty &&
+            !recipe.title.toLowerCase().contains(_searchQuery.toLowerCase())) {
+          return false;
+        }
 
+        // Filtre par catégorie
+        if (_selectedCategory != 'Toutes' &&
+            recipe.categoryName != _selectedCategory) {
+          return false;
+        }
+
+        // Filtre par difficulté
+        if (_selectedDifficulty != 'Toutes' &&
+            recipe.difficulty?.toLowerCase() !=
+                _selectedDifficulty.toLowerCase()) {
+          return false;
+        }
+
+        // Filtre par temps
+        if (_selectedTime != 'Toutes') {
+          final prepTime = _parseTimeToMinutes(recipe.prepTime.toString());
+          switch (_selectedTime) {
+            case '< 30 min':
+              if (prepTime >= 30) return false;
+              break;
+            case '30-60 min':
+              if (prepTime < 30 || prepTime > 60) return false;
+              break;
+            case '> 60 min':
+              if (prepTime <= 60) return false;
+              break;
+          }
+        }
+
+        // Filtre par favoris
+        if (_showOnlyFavorites && false) {
+          return false;
+        }
+
+        return true;
+      }).toList();
+    });
+  }
+
+  int _parseTimeToMinutes(String timeString) {
     try {
-      final results = await _recipesService.searchRecipes(query);
-      if (mounted) {
-        setState(() {
-          _searchResults = results;
-          _isLoadingSearch = false;
-        });
+      final parts = timeString.split(':');
+      if (parts.length >= 2) {
+        final hours = int.tryParse(parts[0]) ?? 0;
+        final minutes = int.tryParse(parts[1]) ?? 0;
+        return hours * 60 + minutes;
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _searchResults = [];
-          _isLoadingSearch = false;
-        });
-      }
+      // Ignore parsing errors
     }
-  }
-
-  void _showRecipeDetails(Recipe recipe) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => RecipeDetailPage(recipe: recipe),
-      ),
-    ).then((_) {
-      _loadFavoriteRecipes();
-    });
-  }
-
-  void _toggleFilters() {
-    setState(() {
-      _showFilters = !_showFilters;
-    });
-  }
-
-  List<Recipe> _filterRecipes(List<Recipe> recipes) {
-    if (_selectedCategory == null &&
-        _selectedDifficulty == null &&
-        _prepTimeRange == null) {
-      return recipes;
-    }
-
-    return recipes.where((recipe) {
-      // Filtre par catégorie
-      if (_selectedCategory != null &&
-          recipe.categoryName != _selectedCategory) {
-        return false;
-      }
-
-      // Filtre par difficulté
-      if (_selectedDifficulty != null) {
-        final difficulty = recipe.difficulty?.toLowerCase() ?? '';
-        final selectedDiff = _selectedDifficulty!.toLowerCase();
-
-        if (!(difficulty == selectedDiff ||
-            (difficulty == 'easy' && selectedDiff == 'facile') ||
-            (difficulty == 'medium' && selectedDiff == 'moyen') ||
-            (difficulty == 'hard' && selectedDiff == 'difficile'))) {
-          return false;
-        }
-      }
-
-      // Filtre par temps de préparation
-      if (_prepTimeRange != null && recipe.totalTime != null) {
-        final minutes = TimeFormatter.extractMinutes(recipe.totalTime!);
-        if (minutes < _prepTimeRange!.start ||
-            minutes > _prepTimeRange!.end) {
-          return false;
-        }
-      }
-
-      return true;
-    }).toList();
-  }
-
-  void _applyFilters() {
-    setState(() {
-      _showFilters = false;
-    });
-  }
-
-  void _resetFilters() {
-    setState(() {
-      _selectedCategory = null;
-      _selectedDifficulty = null;
-      _prepTimeRange = null;
-    });
+    return 0;
   }
 
   @override
@@ -249,809 +148,399 @@ class _RecipesPageState extends State<RecipesPage>
       backgroundColor:
           isDarkMode ? const Color(0xFF121212) : const Color(0xFFFAF9F6),
       appBar: AppBar(
-        title: _isSearching
-            ? TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Rechercher des recettes...',
-                  hintStyle: TextStyle(
-                    color: isDarkMode ? Colors.white70 : Colors.black54,
-                  ),
-                  border: InputBorder.none,
-                ),
-                style: TextStyle(
-                  color: isDarkMode ? Colors.white : Colors.black,
-                ),
-                onChanged: (value) {
-                  _searchRecipes(value);
-                },
-                autofocus: true,
-              )
-            : const Text('Recettes'),
         backgroundColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          'Recettes',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: isDarkMode ? Colors.white : Colors.black87,
+          ),
+        ),
         actions: [
           IconButton(
-            icon: Icon(_isSearching ? Icons.close : Icons.search),
             onPressed: () {
+              if (!mounted) return; // Correction ajoutée
               setState(() {
-                if (_isSearching) {
-                  _isSearching = false;
-                  _searchController.clear();
-                  _searchResults = null;
-                } else {
-                  _isSearching = true;
-                }
+                _showOnlyFavorites = !_showOnlyFavorites;
+                _filterRecipes();
               });
             },
-          ),
-          if (!_isSearching)
-            IconButton(
-              icon: Icon(
-                  _showFilters ? Icons.filter_list_off : Icons.filter_list),
-              onPressed: _toggleFilters,
-              tooltip: 'Filtrer les recettes',
+            icon: Icon(
+              _showOnlyFavorites ? Icons.favorite : Icons.favorite_border,
+              color: _showOnlyFavorites
+                  ? Colors.red
+                  : (isDarkMode ? Colors.white : Colors.black87),
             ),
+          ),
         ],
-        bottom: _isSearching
-            ? null
-            : TabBar(
-                controller: _tabController,
-                labelColor: AppTheme.primaryOrange,
-                unselectedLabelColor:
-                    isDarkMode ? Colors.white70 : Colors.black54,
-                indicatorColor: AppTheme.primaryOrange,
-                tabs: const [
-                  Tab(text: 'Mes favoris'),
-                  Tab(text: 'Toutes les recettes'),
-                ],
-              ),
       ),
       body: Column(
         children: [
-          if (_showFilters) _buildFiltersSection(isDarkMode),
-          Expanded(
-            child: _isSearching
-                ? _buildSearchResults(isDarkMode)
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      RefreshIndicator(
-                        onRefresh: _loadFavoriteRecipes,
-                        color: AppTheme.primaryOrange,
-                        child: _buildFavoriteRecipesList(isDarkMode),
-                      ),
-                      RefreshIndicator(
-                        onRefresh: _loadAllRecipes,
-                        color: AppTheme.primaryOrange,
-                        child: _buildAllRecipesList(isDarkMode),
-                      ),
-                    ],
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFiltersSection(bool isDarkMode) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: isDarkMode ? const Color(0xFF1A1A1A) : Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Filtres',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: isDarkMode ? Colors.white : Colors.black87,
+          // Barre de recherche
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+            child: TextField(
+              onChanged: (value) {
+                if (!mounted) return; // Correction ajoutée
+                setState(() {
+                  _searchQuery = value;
+                  _filterRecipes();
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Rechercher une recette...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
                 ),
+                filled: true,
+                fillColor: isDarkMode
+                    ? const Color(0xFF2A2A2A)
+                    : const Color(0xFFF5F5F5),
               ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: _toggleFilters,
-                color: isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              _buildDropdownFilter(
-                label: 'Catégorie',
-                value: _selectedCategory,
-                items: _categories,
-                onChanged: (value) {
+
+          // Filtres
+          Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _buildFilterChip('Catégorie', _selectedCategory, _categories,
+                    (value) {
+                  if (!mounted) return; // Correction ajoutée
                   setState(() {
                     _selectedCategory = value;
+                    _filterRecipes();
                   });
-                },
-                isDarkMode: isDarkMode,
-              ),
-              _buildDropdownFilter(
-                label: 'Difficulté',
-                value: _selectedDifficulty,
-                items: _difficulties,
-                onChanged: (value) {
+                }),
+                const SizedBox(width: 8),
+                _buildFilterChip(
+                    'Difficulté', _selectedDifficulty, _difficulties, (value) {
+                  if (!mounted) return; // Correction ajoutée
                   setState(() {
                     _selectedDifficulty = value;
+                    _filterRecipes();
                   });
-                },
-                isDarkMode: isDarkMode,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Temps de préparation (min)',
-            style: TextStyle(
-              fontSize: 14,
-              color: isDarkMode ? Colors.white70 : Colors.black54,
+                }),
+                const SizedBox(width: 8),
+                _buildFilterChip('Temps', _selectedTime, _timeRanges, (value) {
+                  if (!mounted) return; // Correction ajoutée
+                  setState(() {
+                    _selectedTime = value;
+                    _filterRecipes();
+                  });
+                }),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                '0',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDarkMode ? Colors.white54 : Colors.black45,
-                ),
-              ),
-              Expanded(
-                child: RangeSlider(
-                  values: _prepTimeRange ?? _timeRange,
-                  min: 0,
-                  max: _maxPrepTime,
-                  divisions: _maxPrepTime > 120 ? 12 : 6,
-                  activeColor: AppTheme.primaryOrange,
-                  inactiveColor:
-                      isDarkMode ? Colors.grey.shade800 : Colors.grey.shade300,
-                  labels: RangeLabels(
-                    (_prepTimeRange?.start ?? _timeRange.start)
-                        .round()
-                        .toString(),
-                    (_prepTimeRange?.end ?? _timeRange.end).round().toString(),
-                  ),
-                  onChanged: (values) {
-                    setState(() {
-                      _prepTimeRange = values;
-                    });
-                  },
-                ),
-              ),
-              Text(
-                _maxPrepTime.round().toString(),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDarkMode ? Colors.white54 : Colors.black45,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton(
-                onPressed: _resetFilters,
-                child: Text(
-                  'Réinitialiser',
-                  style: TextStyle(
-                    color: isDarkMode ? Colors.white70 : Colors.black54,
-                  ),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: _applyFilters,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryOrange,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Appliquer'),
-              ),
-            ],
+
+          // Liste des recettes
+          Expanded(
+            child: _loading
+                ? Center(
+                    child: CircularProgressIndicator(
+                      color: AppTheme.primaryOrange,
+                    ),
+                  )
+                : _filteredRecipes.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.restaurant_menu,
+                              size: 64,
+                              color: Colors.grey[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Aucune recette trouvée',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadRecipes,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final screenWidth = constraints.maxWidth;
+                            int crossAxisCount;
+                            double childAspectRatio;
+                            double cardPadding;
+                            double iconSize;
+                            double fontSize;
+
+                            if (screenWidth > 1200) {
+                              crossAxisCount = 4;
+                              childAspectRatio = 0.75;
+                              cardPadding = 8.0;
+                              iconSize = 14.0;
+                              fontSize = 12.0;
+                            } else if (screenWidth > 800) {
+                              crossAxisCount = 3;
+                              childAspectRatio = 0.8;
+                              cardPadding = 6.0;
+                              iconSize = 14.0;
+                              fontSize = 12.0;
+                            } else if (screenWidth > 500) {
+                              crossAxisCount = 2;
+                              childAspectRatio = 0.85;
+                              cardPadding = 4.0;
+                              iconSize = 12.0;
+                              fontSize = 10.0;
+                            } else {
+                              crossAxisCount = 1;
+                              childAspectRatio = 1.2;
+                              cardPadding = 4.0;
+                              iconSize = 12.0;
+                              fontSize = 10.0;
+                            }
+
+                            return GridView.builder(
+                              padding: const EdgeInsets.all(16),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                childAspectRatio: childAspectRatio,
+                                crossAxisSpacing: 12,
+                                mainAxisSpacing: 12,
+                              ),
+                              itemCount: _filteredRecipes.length,
+                              itemBuilder: (context, index) {
+                                final recipe = _filteredRecipes[index];
+                                return _buildRecipeCard(
+                                  recipe,
+                                  cardPadding,
+                                  iconSize,
+                                  fontSize,
+                                  screenWidth < 500,
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDropdownFilter({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required Function(String?) onChanged,
-    required bool isDarkMode,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            color: isDarkMode ? Colors.white70 : Colors.black54,
-          ),
+  Widget _buildFilterChip(String label, String selectedValue,
+      List<String> options, Function(String) onSelected) {
+    return PopupMenuButton<String>(
+      onSelected: onSelected,
+      itemBuilder: (context) => options
+          .map(
+            (option) => PopupMenuItem(
+              value: option,
+              child: Text(option),
+            ),
+          )
+          .toList(),
+      child: Chip(
+        label: Text(
+          selectedValue == options.first ? label : selectedValue,
+          style: const TextStyle(fontSize: 12),
         ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: isDarkMode ? const Color(0xFF252525) : Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isDarkMode ? Colors.grey.shade800 : Colors.grey.shade300,
-            ),
-          ),
-          child: DropdownButton<String>(
-            value: value,
-            hint: Text(
-              'Sélectionner',
-              style: TextStyle(
-                color: isDarkMode ? Colors.white54 : Colors.black45,
-              ),
-            ),
-            isExpanded: true,
-            underline: const SizedBox(),
-            dropdownColor: isDarkMode ? const Color(0xFF252525) : Colors.white,
-            style: TextStyle(
-              color: isDarkMode ? Colors.white : Colors.black87,
-            ),
-            items: items.map((String item) {
-              return DropdownMenuItem<String>(
-                value: item,
-                child: Text(item),
-              );
-            }).toList(),
-            onChanged: onChanged,
-          ),
-        ),
-      ],
+        backgroundColor: selectedValue != options.first
+            ? AppTheme.primaryOrange.withOpacity(0.1)
+            : null,
+      ),
     );
   }
 
-  Widget _buildSearchResults(bool isDarkMode) {
-    if (_isLoadingSearch) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
-    }
+  Widget _buildRecipeCard(Recipe recipe, double padding, double iconSize,
+      double fontSize, bool isSmallCard) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    if (_searchResults == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.search,
-              size: 64,
-              color: isDarkMode ? Colors.white38 : Colors.black26,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Recherchez des recettes',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? Colors.white : Colors.black87,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_searchResults!.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.search_off,
-              size: 64,
-              color: isDarkMode ? Colors.white38 : Colors.black26,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Aucun résultat trouvé',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Essayez avec d\'autres mots-clés',
-              style: TextStyle(
-                fontSize: 16,
-                color: isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final filteredRecipes = _filterRecipes(_searchResults!);
-    return _buildRecipeGrid(filteredRecipes, isDarkMode);
-  }
-
-  Widget _buildFavoriteRecipesList(bool isDarkMode) {
-    if (_isLoadingFavorites) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
-    }
-
-    if (_errorFavorites != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _errorFavorites!,
-              style: TextStyle(
-                fontSize: 16,
-                color: isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _loadFavoriteRecipes,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryOrange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text('Réessayer'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_favoriteRecipes == null || _favoriteRecipes!.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.restaurant_menu,
-              size: 64,
-              color: isDarkMode ? Colors.white38 : Colors.black26,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Aucune recette favorite',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Ajoutez des recettes à vos favoris\npour les retrouver ici',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final filteredRecipes = _filterRecipes(_favoriteRecipes!);
-    return _buildRecipeGrid(filteredRecipes, isDarkMode);
-  }
-
-  Widget _buildAllRecipesList(bool isDarkMode) {
-    if (_isLoadingAll) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
-    }
-
-    if (_errorAll != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _errorAll!,
-              style: TextStyle(
-                fontSize: 16,
-                color: isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _loadAllRecipes,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryOrange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text('Réessayer'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_allRecipes == null || _allRecipes!.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.restaurant_menu,
-              size: 64,
-              color: isDarkMode ? Colors.white38 : Colors.black26,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Aucune recette disponible',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Revenez plus tard pour découvrir\nde nouvelles recettes',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final filteredRecipes = _filterRecipes(_allRecipes!);
-    if (filteredRecipes.isEmpty &&
-        (_selectedCategory != null ||
-            _selectedDifficulty != null ||
-            _prepTimeRange != null)) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.filter_list_off,
-              size: 64,
-              color: isDarkMode ? Colors.white38 : Colors.black26,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Aucune recette ne correspond aux filtres',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _resetFilters,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryOrange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text('Réinitialiser les filtres'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return _buildRecipeGrid(filteredRecipes, isDarkMode);
-  }
-
-  Widget _buildRecipeGrid(List<Recipe> recipes, bool isDarkMode) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Calcul dynamique du nombre de colonnes basé sur la largeur
-        int crossAxisCount;
-        double cardWidth;
-        
-        if (constraints.maxWidth > 1200) {
-          crossAxisCount = 4;
-          cardWidth = (constraints.maxWidth - 80) / 4; // 80 = padding + spacing
-        } else if (constraints.maxWidth > 800) {
-          crossAxisCount = 3;
-          cardWidth = (constraints.maxWidth - 64) / 3; // 64 = padding + spacing
-        } else if (constraints.maxWidth > 500) {
-          crossAxisCount = 2;
-          cardWidth = (constraints.maxWidth - 48) / 2; // 48 = padding + spacing
-        } else {
-          crossAxisCount = 1;
-          cardWidth = constraints.maxWidth - 32; // 32 = padding
-        }
-
-        // Calcul de l'aspect ratio basé sur la largeur de la carte
-        double aspectRatio = cardWidth > 200 ? 0.75 : 0.7;
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            childAspectRatio: aspectRatio,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RecipeDetailPage(recipe: recipe),
           ),
-          itemCount: recipes.length,
-          itemBuilder: (context, index) {
-            final recipe = recipes[index];
-            return _buildRecipeCard(recipe, isDarkMode, cardWidth);
-          },
         );
       },
-    );
-  }
-
-  Widget _buildRecipeCard(Recipe recipe, bool isDarkMode, double cardWidth) {
-    final formattedTime = TimeFormatter.formatDuration(recipe.totalTime);
-    final bool isSmallCard = cardWidth < 180;
-
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isDarkMode ? Colors.grey.shade800 : Colors.grey.shade200,
-          width: 1,
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-      ),
-      color: isDarkMode ? const Color(0xFF252525) : Colors.white,
-      child: InkWell(
-        onTap: () => _showRecipeDetails(recipe),
-        borderRadius: BorderRadius.circular(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image avec ratio fixe
+            // Image
             Expanded(
-              flex: isSmallCard ? 3 : 4,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                child: Container(
-                  width: double.infinity,
-                  child: recipe.image != null && recipe.image!.isNotEmpty
-                      ? Image.network(
+              flex: 6,
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(12)),
+                  color: Colors.grey[200],
+                ),
+                child: recipe.image != null
+                    ? ClipRRect(
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(12)),
+                        child: Image.network(
                           recipe.image!,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: isDarkMode
-                                  ? Colors.grey.shade800
-                                  : Colors.grey.shade300,
-                              child: Icon(
-                                Icons.restaurant,
-                                size: isSmallCard ? 32 : 40,
-                                color: isDarkMode ? Colors.white38 : Colors.black26,
-                              ),
-                            );
-                          },
-                        )
-                      : Container(
-                          color: isDarkMode
-                              ? Colors.grey.shade800
-                              : Colors.grey.shade300,
-                          child: Icon(
-                            Icons.restaurant,
-                            size: isSmallCard ? 32 : 40,
-                            color: isDarkMode ? Colors.white38 : Colors.black26,
-                          ),
+                          errorBuilder: (context, error, stackTrace) => Icon(
+                              Icons.restaurant,
+                              size: 40,
+                              color: Colors.grey[400]),
                         ),
-                ),
+                      )
+                    : Icon(Icons.restaurant, size: 40, color: Colors.grey[400]),
               ),
             ),
 
-            // Contenu avec flex pour éviter l'overflow
+            // Contenu
             Expanded(
-              flex: isSmallCard ? 2 : 3,
+              flex: 4,
               child: Padding(
-                padding: EdgeInsets.all(isSmallCard ? 8 : 12),
+                padding: EdgeInsets.all(padding),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Titre avec hauteur flexible
-                    Expanded(
-                      flex: 2,
+                    // Titre
+                    Flexible(
                       child: Text(
                         recipe.title,
                         style: TextStyle(
-                          fontSize: isSmallCard ? 12 : 14,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
+                          fontSize: fontSize + 2,
                           color: isDarkMode ? Colors.white : Colors.black87,
-                          height: 1.2,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    
+
                     const SizedBox(height: 4),
-                    
-                    // Catégorie (optionnelle)
-                    if (recipe.categoryName != null && !isSmallCard)
-                      Text(
-                        recipe.categoryName!,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: AppTheme.primaryOrange,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    
-                    const Spacer(),
-                    
-                    // Informations en bas
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
+
+                    // Première ligne d'infos : Temps et Ingrédients
+                    Row(
                       children: [
-                        // Première ligne : Temps et ingrédients
-                        Row(
-                          children: [
-                            if (formattedTime.isNotEmpty)
-                              Expanded(
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.access_time,
-                                      size: isSmallCard ? 12 : 14,
-                                      color: isDarkMode ? Colors.white54 : Colors.black45,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Flexible(
-                                      child: Text(
-                                        formattedTime,
-                                        style: TextStyle(
-                                          fontSize: isSmallCard ? 10 : 12,
-                                          color: isDarkMode ? Colors.white54 : Colors.black45,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            
-                            if (recipe.ingredients != null && recipe.ingredients!.isNotEmpty)
-                              Text(
-                                '${recipe.ingredients!.length} ing.',
-                                style: TextStyle(
-                                  fontSize: isSmallCard ? 10 : 12,
-                                  color: isDarkMode ? Colors.white54 : Colors.black45,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                          ],
+                        Icon(Icons.access_time,
+                            size: iconSize, color: AppTheme.primaryOrange),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            TimeFormatter.formatDuration(recipe.prepTime),
+                            style: TextStyle(
+                              fontSize: fontSize,
+                              color:
+                                  isDarkMode ? Colors.white70 : Colors.black54,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
-                        
-                        const SizedBox(height: 4),
-                        
-                        // Deuxième ligne : Coûts
-                        Row(
-                          children: [
-                            if (recipe.canCalculateCost || recipe.estimatedCost != null)
-                              Expanded(
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: recipe.canCalculateCost 
-                                            ? AppTheme.primaryOrange.withOpacity(0.1)
-                                            : Colors.grey.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        'FCFA',
-                                        style: TextStyle(
-                                          fontSize: isSmallCard ? 8 : 9,
-                                          fontWeight: FontWeight.bold,
-                                          color: recipe.canCalculateCost 
-                                              ? AppTheme.primaryOrange 
-                                              : Colors.grey,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Flexible(
-                                      child: Text(
-                                        recipe.canCalculateCost
-                                            ? recipe.formattedCalculatedCost
-                                            : recipe.formattedEstimatedCost,
-                                        style: TextStyle(
-                                          fontSize: isSmallCard ? 10 : 12,
-                                          fontWeight: recipe.canCalculateCost 
-                                              ? FontWeight.bold 
-                                              : FontWeight.w500,
-                                          color: recipe.canCalculateCost
-                                              ? AppTheme.primaryOrange
-                                              : Colors.grey,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            
-                            if (recipe.canCalculateCost && !isSmallCard)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  recipe.formattedCostPerServing,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                          ],
+                        const SizedBox(width: 8),
+                        Icon(Icons.restaurant_menu,
+                            size: iconSize, color: AppTheme.primaryGreen),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            '${recipe.ingredients?.length ?? 0} ing.',
+                            style: TextStyle(
+                              fontSize: fontSize,
+                              color:
+                                  isDarkMode ? Colors.white70 : Colors.black54,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    // Deuxième ligne d'infos : Prix
+                    Row(
+                      children: [
+                        // Prix total
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: recipe.canCalculateCost
+                                ? AppTheme.primaryOrange.withOpacity(0.1)
+                                : Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: recipe.canCalculateCost
+                                  ? AppTheme.primaryOrange.withOpacity(0.3)
+                                  : Colors.grey.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            'FCFA',
+                            style: TextStyle(
+                              fontSize: fontSize - 1,
+                              fontWeight: FontWeight.w600,
+                              color: recipe.canCalculateCost
+                                  ? AppTheme.primaryOrange
+                                  : Colors.grey[600],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            '${recipe.canCalculateCost ? recipe.calculatedTotalCost.round() : recipe.estimatedCost?.round() ?? 0}',
+                            style: TextStyle(
+                              fontSize: fontSize,
+                              fontWeight: FontWeight.bold,
+                              color: recipe.canCalculateCost
+                                  ? AppTheme.primaryOrange
+                                  : Colors.grey[600],
+                            ),
+                          ),
+                        ),
+
+                        // Coût par portion (masqué sur très petites cartes)
+                        if (!isSmallCard) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryGreen.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '${recipe.costPerServing.round()}/p',
+                              style: TextStyle(
+                                fontSize: fontSize - 1,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primaryGreen,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],

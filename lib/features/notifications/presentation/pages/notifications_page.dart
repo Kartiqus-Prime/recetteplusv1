@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/notifications_service.dart';
-import '../../../../core/services/push_notification_service.dart';
 import '../../../../core/models/notification.dart';
 
 class NotificationsPage extends StatefulWidget {
@@ -11,7 +10,8 @@ class NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
-  final NotificationsService _notificationsService = NotificationsService();
+  final NotificationsService _notificationsService =
+      NotificationsService.instance;
   String? _selectedFilter;
 
   final Map<String, String> _filters = {
@@ -48,18 +48,18 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                            '🔔 Notification temps réel créée ! Elle devrait apparaître automatiquement.'),
+                            '🔔 Notification temps réel OneSignal créée ! Elle devrait apparaître automatiquement.'),
                         backgroundColor: Colors.orange,
                       ),
                     );
                   }
                   break;
                 case 'test_local_notification':
-                  await PushNotificationService.sendTestLocalNotification();
+                  await _notificationsService.sendTestNotification();
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('🔔 Notification système envoyée !'),
+                        content: Text('🔔 Notification OneSignal envoyée !'),
                         backgroundColor: Colors.green,
                       ),
                     );
@@ -67,12 +67,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   break;
                 case 'check_status':
                   final status =
-                      await PushNotificationService.checkNotificationStatus();
+                      await _notificationsService.checkNotificationStatus();
                   if (mounted) {
                     showDialog(
                       context: context,
                       builder: (context) => AlertDialog(
-                        title: const Text('Status des Notifications'),
+                        title: const Text('Status OneSignal'),
                         content: SingleChildScrollView(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,15 +99,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     );
                   }
                   break;
-                case 'show_fcm_token':
-                  final token = await PushNotificationService.getCurrentToken();
+                case 'show_player_id':
+                  final playerId = _notificationsService.getCurrentPlayerId();
                   if (mounted) {
                     showDialog(
                       context: context,
                       builder: (context) => AlertDialog(
-                        title: const Text('Token FCM'),
-                        content:
-                            SelectableText(token ?? 'Token non disponible'),
+                        title: const Text('Player ID OneSignal'),
+                        content: SelectableText(
+                            playerId ?? 'Player ID non disponible'),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(context),
@@ -147,7 +147,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   children: [
                     Icon(Icons.notifications_active, color: Colors.green),
                     SizedBox(width: 8),
-                    Text('🔔 Test système'),
+                    Text('🔔 Test OneSignal'),
                   ],
                 ),
               ),
@@ -162,12 +162,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
               ),
               const PopupMenuItem(
-                value: 'show_fcm_token',
+                value: 'show_player_id',
                 child: Row(
                   children: [
                     Icon(Icons.key),
                     SizedBox(width: 8),
-                    Text('Voir token FCM'),
+                    Text('Voir Player ID'),
                   ],
                 ),
               ),
@@ -188,13 +188,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           await _notificationsService.createTestNotification();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  '🔔 Notification temps réel créée ! Elle devrait apparaître automatiquement.'),
-                              backgroundColor: Colors.orange,
-                            ),
-                          );
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                    '🔔 Notification temps réel OneSignal créée ! Elle devrait apparaître automatiquement.'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          }
                         },
                         icon: const Icon(Icons.flash_on),
                         label: const Text('Test Temps Réel'),
@@ -208,18 +210,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () async {
-                          await PushNotificationService
-                              .sendTestLocalNotification();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content:
-                                  Text('🔔 Notification système envoyée !'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
+                          await _notificationsService.sendTestNotification();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content:
+                                    Text('🔔 Notification OneSignal envoyée !'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
                         },
                         icon: const Icon(Icons.notifications_active),
-                        label: const Text('Test Système'),
+                        label: const Text('Test OneSignal'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           foregroundColor: Colors.white,
@@ -230,7 +233,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '💡 Test Temps Réel : Crée une notification en DB qui devrait apparaître automatiquement\n💡 Test Système : Affiche directement une notification système',
+                  '💡 Test Temps Réel : Crée une notification en DB qui devrait apparaître automatiquement\n💡 Test OneSignal : Affiche directement une notification OneSignal',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
@@ -256,6 +259,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: FilterChip(
+                    key: ValueKey('filter_chip_${entry.key}'),
                     label: Text(entry.value),
                     selected: isSelected,
                     onSelected: (selected) {
@@ -346,7 +350,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   Widget _buildNotificationCard(AppNotification notification) {
     return Dismissible(
-      key: Key(notification.id),
+      key: Key('notification_${notification.id}'),
       direction: DismissDirection.endToStart,
       background: Container(
         color: Colors.red,

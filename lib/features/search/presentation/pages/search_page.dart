@@ -507,7 +507,7 @@ class _SearchPageState extends State<SearchPage> {
                 Icon(Icons.play_arrow, size: 16, color: AppTheme.primaryBrown),
                 const SizedBox(width: 4),
                 Text(
-                  video.formattedDuration,
+                  video.formattedDuration.toString(),
                   style: TextStyle(
                     fontSize: 12,
                     color: isDarkMode ? Colors.white70 : Colors.black54,

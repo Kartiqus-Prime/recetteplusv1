@@ -1,33 +1,30 @@
 import 'dart:convert';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'onesignal_service.dart';
 
 class PushNotificationService {
-  static final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   static final FlutterLocalNotificationsPlugin _localNotifications = 
       FlutterLocalNotificationsPlugin();
   
-  static String? _fcmToken;
   static Function(String)? onNotificationTap;
 
-  /// Initialiser le service de notifications push
+  /// Initialiser le service de notifications push avec OneSignal
   static Future<void> initialize() async {
     try {
-      print('🔔 Initialisation des notifications push...');
+      print('🔔 Initialisation des notifications push avec OneSignal...');
+
+      // Initialiser OneSignal
+      await OneSignalService.initialize();
 
       // Demander les permissions
       await _requestPermissions();
 
       // Initialiser les notifications locales
       await _initializeLocalNotifications();
-
-      // Obtenir le token FCM
-      await _getFCMToken();
-
-      // Configurer les handlers
-      _setupMessageHandlers();
 
       print('✅ Notifications push initialisées avec succès');
     } catch (e) {
@@ -37,14 +34,12 @@ class PushNotificationService {
 
   /// Demander les permissions de notification
   static Future<void> _requestPermissions() async {
-    final settings = await _firebaseMessaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
-
-    print('📱 Permissions notifications: ${settings.authorizationStatus}');
+    try {
+      final status = await Permission.notification.request();
+      print('📱 Permissions notifications: $status');
+    } catch (e) {
+      print('❌ Erreur permissions: $e');
+    }
   }
 
   /// Initialiser les notifications locales
@@ -85,124 +80,149 @@ class PushNotificationService {
         ?.createNotificationChannel(channel);
   }
 
-  /// Obtenir le token FCM
-  static Future<void> _getFCMToken() async {
+  /// Afficher une notification à partir de données (pour Supabase realtime)
+  static Future<void> showNotificationFromData(Map<String, dynamic> data) async {
     try {
-      _fcmToken = await _firebaseMessaging.getToken();
-      print('🔑 Token FCM: ${_fcmToken?.substring(0, 20)}...');
+      print('🔔 Affichage notification depuis données Supabase...');
 
-      // Sauvegarder le token en base
-      await _saveTokenToDatabase();
+      const androidDetails = AndroidNotificationDetails(
+        'recetteplus_notifications',
+        'Recette+ Notifications',
+        channelDescription: 'Notifications temps réel de Recette+',
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        largeIcon: null,
+        enableVibration: true,
+        playSound: true,
+        showWhen: true,
+      );
 
-      // Écouter les changements de token
-      _firebaseMessaging.onTokenRefresh.listen((newToken) {
-        _fcmToken = newToken;
-        _saveTokenToDatabase();
-      });
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      const details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      final notification = data['notification'] ?? {};
+      final title = notification['title'] ?? 'Recette+';
+      final body = notification['body'] ?? 'Nouvelle notification';
+      final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      print('🔔 Affichage notification: $title - $body');
+
+      await _localNotifications.show(
+        id,
+        title,
+        body,
+        details,
+        payload: jsonEncode(data['data'] ?? {}),
+      );
+
+      print('✅ Notification affichée avec succès');
     } catch (e) {
-      print('❌ Erreur récupération token FCM: $e');
+      print('❌ Erreur affichage notification: $e');
     }
   }
 
-  /// Sauvegarder le token en base de données
-  static Future<void> _saveTokenToDatabase() async {
+  /// Envoyer une notification de test locale
+  static Future<void> sendTestLocalNotification() async {
     try {
+      print('🧪 Envoi notification locale de test...');
+
+      const androidDetails = AndroidNotificationDetails(
+        'recetteplus_notifications',
+        'Recette+ Notifications',
+        channelDescription: 'Notifications de test',
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        largeIcon: null,
+        enableVibration: true,
+        playSound: true,
+        styleInformation: BigTextStyleInformation(
+            'Ceci est une notification de test avec OneSignal !'),
+      );
+
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      const details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      final now = DateTime.now();
+      await _localNotifications.show(
+        now.millisecondsSinceEpoch ~/ 1000,
+        '🧪 Test Recette+ OneSignal',
+        'Notification de test à ${now.hour}:${now.minute.toString().padLeft(2, '0')}',
+        details,
+        payload: jsonEncode({'type': 'test', 'route': '/notifications'}),
+      );
+
+      print('✅ Notification locale de test envoyée');
+    } catch (e) {
+      print('❌ Erreur envoi notification locale: $e');
+    }
+  }
+
+  /// Vérifier le statut des notifications
+  static Future<Map<String, dynamic>> checkNotificationStatus() async {
+    final status = <String, dynamic>{};
+
+    try {
+      // Vérifier les permissions
+      final permission = await Permission.notification.status;
+      status['permission'] = permission.toString();
+      status['permission_granted'] = permission.isGranted;
+
+      // Vérifier OneSignal
+      final oneSignalStatus = await OneSignalService.getNotificationStatus();
+      status.addAll(oneSignalStatus);
+
+      // Vérifier l'utilisateur connecté
       final user = Supabase.instance.client.auth.currentUser;
-      if (user != null && _fcmToken != null) {
-        await Supabase.instance.client
-            .from('user_tokens')
-            .upsert({
-              'user_id': user.id,
-              'fcm_token': _fcmToken,
-              'platform': defaultTargetPlatform.name,
-              'updated_at': DateTime.now().toIso8601String(),
-            });
-        print('💾 Token FCM sauvegardé en base');
-      }
+      status['user_connected'] = user != null;
+      status['user_email'] = user?.email ?? 'null';
+
+      print('📊 Status des notifications: $status');
     } catch (e) {
-      print('❌ Erreur sauvegarde token: $e');
+      print('❌ Erreur vérification status: $e');
+      status['error'] = e.toString();
     }
+
+    return status;
   }
 
-  /// Configurer les handlers de messages
-  static void _setupMessageHandlers() {
-    // Message reçu quand l'app est au premier plan
-    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
-
-    // Message tapé quand l'app est en arrière-plan
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleBackgroundMessageTap);
-
-    // Vérifier si l'app a été ouverte via une notification
-    _checkInitialMessage();
-  }
-
-  /// Gérer les messages au premier plan
-  static Future<void> _handleForegroundMessage(RemoteMessage message) async {
-    print('📨 Message reçu au premier plan: ${message.notification?.title}');
-
-    // Afficher une notification locale
-    await _showLocalNotification(message);
-  }
-
-  /// Afficher une notification locale
-  static Future<void> _showLocalNotification(RemoteMessage message) async {
-    final notification = message.notification;
-    if (notification == null) return;
-
-    const androidDetails = AndroidNotificationDetails(
-      'recetteplus_notifications',
-      'Recette+ Notifications',
-      channelDescription: 'Notifications de l\'application Recette+',
-      importance: Importance.high,
-      priority: Priority.high,
-      // ✅ Utiliser l'icône par défaut de l'app
-      icon: '@mipmap/ic_launcher',
-      // ✅ Pas d'icône supplémentaire à droite
-      largeIcon: null,
-      showWhen: true,
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _localNotifications.show(
-      message.hashCode,
-      notification.title,
-      notification.body,
-      details,
-      payload: jsonEncode(message.data),
-    );
-  }
-
-  /// Gérer le tap sur notification en arrière-plan
-  static void _handleBackgroundMessageTap(RemoteMessage message) {
-    print('👆 Notification tappée (arrière-plan): ${message.notification?.title}');
-    _navigateFromNotification(message.data);
+  /// Obtenir le Player ID OneSignal
+  static Future<String?> getCurrentToken() async {
+    try {
+      return await OneSignalService.getPlayerId();
+    } catch (e) {
+      print('❌ Erreur récupération Player ID: $e');
+      return null;
+    }
   }
 
   /// Gérer le tap sur notification locale
   static void _onNotificationTapped(NotificationResponse response) {
     print('👆 Notification locale tappée');
     if (response.payload != null) {
-      final data = jsonDecode(response.payload!);
-      _navigateFromNotification(data);
-    }
-  }
-
-  /// Vérifier le message initial
-  static Future<void> _checkInitialMessage() async {
-    final initialMessage = await _firebaseMessaging.getInitialMessage();
-    if (initialMessage != null) {
-      print('🚀 App ouverte via notification: ${initialMessage.notification?.title}');
-      _navigateFromNotification(initialMessage.data);
+      try {
+        final data = jsonDecode(response.payload!);
+        _navigateFromNotification(data);
+      } catch (e) {
+        print('❌ Erreur parsing payload: $e');
+      }
     }
   }
 
@@ -214,19 +234,11 @@ class PushNotificationService {
     }
   }
 
-  /// Obtenir le token FCM actuel
-  static String? get fcmToken => _fcmToken;
-
-  /// Envoyer une notification de test
+  /// Envoyer une notification de test (alias pour compatibilité)
   static Future<void> sendTestNotification() async {
-    final message = RemoteMessage(
-      notification: const RemoteNotification(
-        title: '🧪 Test Notification',
-        body: 'Ceci est une notification de test depuis Recette+',
-      ),
-      data: {'route': '/home', 'type': 'test'},
-    );
-
-    await _handleForegroundMessage(message);
+    await sendTestLocalNotification();
   }
+
+  /// Obtenir le Player ID (alias pour compatibilité)
+  static Future<String?> get fcmToken async => await getCurrentToken();
 }

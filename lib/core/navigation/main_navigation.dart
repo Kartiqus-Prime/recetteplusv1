@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/shorts/presentation/pages/shorts_page.dart';
 import '../../features/recipes/presentation/pages/recipes_page.dart';
-import '../../features/products/presentation/pages/products_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
 import '../theme/app_theme.dart';
 
@@ -55,6 +54,13 @@ class _MainNavigationState extends State<MainNavigation> {
     }
   }
 
+  List<Widget> get _pages => [
+        const HomePage(),
+        const ShortsPage(),
+        const RecipesPage(),
+        const ProfilePage(),
+      ];
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -66,13 +72,7 @@ class _MainNavigationState extends State<MainNavigation> {
         controller: _pageController,
         onPageChanged: _onPageChanged,
         physics: const BouncingScrollPhysics(),
-        children: const [
-          HomePage(),
-          ShortsPage(),
-          RecipesPage(),
-          ProductsPage(),
-          ProfilePage(),
-        ],
+        children: _pages,
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
@@ -116,11 +116,6 @@ class _MainNavigationState extends State<MainNavigation> {
               icon: Icon(Icons.restaurant_menu_outlined),
               activeIcon: Icon(Icons.restaurant_menu),
               label: 'Recettes',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.shopping_basket_outlined),
-              activeIcon: Icon(Icons.shopping_basket),
-              label: 'Produits',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'base_notification_service.dart';
+import 'auth_service.dart';
 
 /// Service pour les appels API sécurisés vers les Edge Functions
 class SecureApiService extends BaseNotificationService {
@@ -33,16 +34,27 @@ class SecureApiService extends BaseNotificationService {
   }) async {
     return await BaseNotificationService.retryWithBackoff<Map<String, dynamic>>(
       () async {
-        final authToken = _generateAuthToken();
+        // Vérifier l'authentification avant l'appel
+        final authService = AuthService.instance;
+        final isAuth = await authService.isAuthenticated();
+
+        if (!isAuth) {
+          throw Exception('Utilisateur non authentifié');
+        }
+
+        final accessToken = await authService.getValidAccessToken();
+        if (accessToken == null) {
+          throw Exception('Token d\'accès invalide');
+        }
 
         BaseNotificationService.logDebug(
-            '🔐 Appel sécurisé Edge Function: $functionName');
+            '🔐 Appel Edge Function avec token valide: $functionName');
 
         final response = await _supabase.functions.invoke(
           functionName,
           method: HttpMethod.post,
           headers: {
-            'Authorization': 'Bearer $authToken',
+            'Authorization': 'Bearer $accessToken',
             'Content-Type': 'application/json',
           },
           body: body ?? {},
@@ -52,6 +64,13 @@ class SecureApiService extends BaseNotificationService {
           BaseNotificationService.logSuccess(
               '✅ Edge Function appelée avec succès: $functionName');
           return response.data as Map<String, dynamic>;
+        } else if (response.status == 401) {
+          BaseNotificationService.logError(
+              '❌ Token JWT invalide, tentative de rafraîchissement...');
+
+          // Forcer le rafraîchissement du token
+          await authService.ensureValidSession();
+          throw Exception('Token JWT invalide - retry nécessaire');
         } else {
           final error =
               'Edge Function error: ${response.status} - ${response.data}';

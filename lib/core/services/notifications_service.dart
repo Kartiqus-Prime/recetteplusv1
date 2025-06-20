@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/notification.dart';
-import 'push_notification_service.dart';
+import 'onesignal_service.dart';
+import 'auth_service.dart';
 
 class NotificationsService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -51,6 +52,9 @@ class NotificationsService {
 
       print('🔄 Initialisation des notifications temps réel pour: $userId');
 
+      // Initialiser OneSignal
+      await OneSignalService.initialize();
+
       // Vérifier et afficher les notifications non lues au démarrage
       await _checkAndShowUnreadNotifications();
 
@@ -59,9 +63,10 @@ class NotificationsService {
         await _supabase.removeChannel(_notificationsChannel!);
       }
 
-      // Créer un nouveau canal pour les notifications temps réel
+      // Créer un nouveau canal pour les notifications temps réel avec une clé unique
       _notificationsChannel = _supabase
-          .channel('notifications_$userId')
+          .channel(
+              'notifications_${userId}_${DateTime.now().millisecondsSinceEpoch}')
           .onPostgresChanges(
             event: PostgresChangeEvent.insert,
             schema: 'public',
@@ -93,7 +98,7 @@ class NotificationsService {
       // S'abonner au canal
       await _notificationsChannel!.subscribe();
 
-      print('✅ Notifications temps réel initialisées');
+      print('✅ Notifications temps réel initialisées avec OneSignal');
     } catch (e) {
       print('❌ Erreur initialisation temps réel: $e');
     }
@@ -144,23 +149,23 @@ class NotificationsService {
       final notification = AppNotification.fromJson(data);
       print('🆕 Traitement nouvelle notification: ${notification.title}');
 
-      // Afficher la notification système
+      // Afficher la notification système via OneSignal
       await _showSystemNotification(notification);
     } catch (e) {
       print('❌ Erreur traitement nouvelle notification: $e');
     }
   }
 
-  /// Afficher une notification système
+  /// Afficher une notification système via OneSignal
   Future<void> _showSystemNotification(AppNotification notification) async {
     try {
-      // Créer un message RemoteMessage simulé pour réutiliser la logique existante
+      // Créer un message pour OneSignal
       final fakeMessage = _createFakeRemoteMessage(notification);
-      await PushNotificationService.showNotificationFromData(fakeMessage);
+      await OneSignalService.showNotificationFromData(fakeMessage);
 
-      print('✅ Notification système affichée: ${notification.title}');
+      print('✅ Notification système OneSignal affichée: ${notification.title}');
     } catch (e) {
-      print('❌ Erreur affichage notification système: $e');
+      print('❌ Erreur affichage notification système OneSignal: $e');
     }
   }
 
@@ -214,6 +219,20 @@ class NotificationsService {
     }
   }
 
+  // Ajouter cette méthode privée au début de la classe :
+  Future<bool> _ensureAuthenticated() async {
+    final authService = AuthService.instance;
+    final isAuth = await authService.isAuthenticated();
+
+    if (!isAuth) {
+      print('⚠️ Utilisateur non authentifié pour les notifications');
+      return false;
+    }
+
+    return true;
+  }
+
+  // Méthodes publiques pour l'interface
   Future<List<AppNotification>> getNotifications({
     int limit = 20,
     int offset = 0,
@@ -221,6 +240,11 @@ class NotificationsService {
     bool? isRead,
   }) async {
     try {
+      // Vérifier l'authentification d'abord
+      if (!await _ensureAuthenticated()) {
+        return _getFallbackNotifications();
+      }
+
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return _getFallbackNotifications();
 
@@ -243,7 +267,12 @@ class NotificationsService {
           .map<AppNotification>((json) => AppNotification.fromJson(json))
           .toList();
     } catch (e) {
-      print('Erreur lors du chargement des notifications: $e');
+      print('❌ Erreur lors du chargement des notifications: $e');
+      if (e.toString().contains('401') || e.toString().contains('JWT')) {
+        print('🔄 Erreur JWT détectée, utilisation des notifications fallback');
+        // Forcer la vérification de l'authentification
+        await _ensureAuthenticated();
+      }
       return _getFallbackNotifications();
     }
   }
@@ -371,9 +400,9 @@ class NotificationsService {
       final now = DateTime.now();
       await _supabase.from('notifications').insert({
         'user_id': userId,
-        'title': 'Notification de test temps réel',
+        'title': 'Notification de test temps réel OneSignal',
         'content':
-            'Ceci est une notification de test créée le ${now.day}/${now.month} à ${now.hour}:${now.minute.toString().padLeft(2, '0')}. Elle devrait apparaître automatiquement !',
+            'Ceci est une notification de test OneSignal créée le ${now.day}/${now.month} à ${now.hour}:${now.minute.toString().padLeft(2, '0')}. Elle devrait apparaître automatiquement !',
         'type': 'test',
         'is_read': false,
         'priority': 'normal',
@@ -384,12 +413,25 @@ class NotificationsService {
       });
 
       print(
-          'Notification de test temps réel créée avec succès pour l\'utilisateur: $userId');
+          'Notification de test OneSignal créée avec succès pour l\'utilisateur: $userId');
       return true;
     } catch (e) {
-      print('Erreur création test: $e');
+      print('Erreur création test OneSignal: $e');
       return false;
     }
+  }
+
+  // Méthodes OneSignal exposées
+  Future<void> sendTestNotification() async {
+    await OneSignalService.createTestNotification();
+  }
+
+  Future<Map<String, dynamic>> checkNotificationStatus() async {
+    return await OneSignalService.getNotificationStatus();
+  }
+
+  String? getCurrentPlayerId() {
+    return OneSignalService.getCurrentPlayerId();
   }
 
   List<AppNotification> _getFallbackNotifications() {

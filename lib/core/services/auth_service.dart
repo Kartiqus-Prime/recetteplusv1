@@ -1,188 +1,188 @@
-import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import '../../main.dart';
+import 'package:flutter/material.dart';
 
 class AuthService {
-  // URL de callback pour la redirection depuis Supabase
-  static const String callbackUrl = 'com.recetteplus.app://auth-callback/';
-  
-  static Future<bool> signInWithGoogle(BuildContext context) async {
-    try {
-      debugPrint('🔄 Début de la connexion Google...');
-      
-      // Récupérer le client ID depuis les variables d'environnement
-      final googleClientId = dotenv.env['GOOGLE_WEB_CLIENT_ID'];
-      
-      if (googleClientId == null || googleClientId.isEmpty) {
-        debugPrint('❌ GOOGLE_WEB_CLIENT_ID non défini dans .env');
-        _showErrorDialog(context, 'Configuration manquante', 'GOOGLE_WEB_CLIENT_ID non défini dans le fichier .env');
-        return false;
-      }
-      
-      debugPrint('✅ Client ID Google trouvé: ${googleClientId.substring(0, 20)}...');
+  final SupabaseClient _supabase = Supabase.instance.client;
+  static AuthService? _instance;
 
-      // Initialiser GoogleSignIn avec le client ID
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        scopes: ['email', 'profile'],
-        serverClientId: googleClientId,
-      );
-      
-      debugPrint('🔄 Initialisation GoogleSignIn terminée');
-      
-      // Déconnecter l'utilisateur précédent si nécessaire
-      await googleSignIn.signOut();
-      debugPrint('🔄 Déconnexion précédente effectuée');
-      
-      // Déclencher le flux de connexion Google
-      debugPrint('🔄 Ouverture du sélecteur de compte Google...');
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-      
-      if (googleUser == null) {
-        debugPrint('⚠️ Connexion Google annulée par l\'utilisateur');
+  // Singleton pattern
+  static AuthService get instance {
+    _instance ??= AuthService._internal();
+    return _instance!;
+  }
+
+  AuthService._internal();
+
+  Future<User?> getCurrentUser() async {
+    try {
+      await _ensureValidSession();
+      return _supabase.auth.currentUser;
+    } catch (e) {
+      print('❌ Erreur getCurrentUser: $e');
+      return null;
+    }
+  }
+
+  Future<bool> _ensureValidSession() async {
+    try {
+      final session = _supabase.auth.currentSession;
+      if (session == null) {
+        print('❌ Aucune session active');
         return false;
       }
-      
-      debugPrint('✅ Utilisateur Google sélectionné: ${googleUser.email}');
-      
-      // Obtenir les détails d'authentification de la requête
-      debugPrint('🔄 Récupération des tokens d\'authentification...');
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      
-      debugPrint('✅ Tokens récupérés:');
-      debugPrint('  - ID Token: ${googleAuth.idToken != null ? "✅ Présent" : "❌ Absent"}');
-      debugPrint('  - Access Token: ${googleAuth.accessToken != null ? "✅ Présent" : "❌ Absent"}');
-      
-      if (googleAuth.idToken == null) {
-        debugPrint('❌ ID Token manquant');
-        _showErrorDialog(context, 'Erreur d\'authentification', 'Impossible d\'obtenir le token d\'authentification Google');
-        return false;
+
+      // Vérifier si le token expire bientôt (dans les 10 prochaines minutes)
+      final expiresAt =
+          DateTime.fromMillisecondsSinceEpoch(session.expiresAt! * 1000);
+      final now = DateTime.now();
+      final timeUntilExpiry = expiresAt.difference(now);
+
+      print('⏰ Token expire dans: ${timeUntilExpiry.inMinutes} minutes');
+
+      if (timeUntilExpiry.inMinutes < 10) {
+        print('🔄 Token expire bientôt, rafraîchissement automatique...');
+        try {
+          final response = await _supabase.auth.refreshSession();
+          if (response.session != null) {
+            print('✅ Token rafraîchi avec succès');
+            return true;
+          } else {
+            print('❌ Échec du rafraîchissement du token');
+            return false;
+          }
+        } catch (refreshError) {
+          print('❌ Erreur lors du rafraîchissement: $refreshError');
+          // Essayer de reconnecter l'utilisateur
+          await _handleAuthError();
+          return false;
+        }
       }
-      
-      debugPrint('🔄 Connexion à Supabase avec les tokens Google...');
-      
-      // Connecter l'utilisateur à Supabase avec les informations d'identification Google
-      final AuthResponse res = await supabase.auth.signInWithIdToken(
-        provider: OAuthProvider.google,
-        idToken: googleAuth.idToken!,
-        accessToken: googleAuth.accessToken,
+
+      return true;
+    } catch (e) {
+      print('❌ Erreur vérification session: $e');
+      await _handleAuthError();
+      return false;
+    }
+  }
+
+  Future<void> _handleAuthError() async {
+    try {
+      print('🔄 Tentative de reconnexion automatique...');
+
+      // Vérifier si on a des credentials stockés
+      final session = _supabase.auth.currentSession;
+      if (session?.refreshToken != null) {
+        await _supabase.auth.refreshSession();
+        print('✅ Reconnexion réussie');
+      } else {
+        print('⚠️ Aucun refresh token disponible');
+        // Ici vous pourriez rediriger vers la page de connexion
+      }
+    } catch (e) {
+      print('❌ Échec de la reconnexion: $e');
+      // Nettoyer la session corrompue
+      await _supabase.auth.signOut();
+    }
+  }
+
+  Future<String?> getValidAccessToken() async {
+    try {
+      final isValid = await _ensureValidSession();
+      if (!isValid) return null;
+
+      final session = _supabase.auth.currentSession;
+      return session?.accessToken;
+    } catch (e) {
+      print('❌ Erreur récupération token: $e');
+      return null;
+    }
+  }
+
+  Future<bool> isAuthenticated() async {
+    try {
+      return await _ensureValidSession();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<void> signOut() async {
+    try {
+      await _supabase.auth.signOut();
+      print('✅ Déconnexion réussie');
+    } catch (e) {
+      print('❌ Erreur déconnexion: $e');
+    }
+  }
+
+  Future<bool> ensureValidSession() async {
+    return await _ensureValidSession();
+  }
+
+  Future<bool> signInWithGoogle(BuildContext context) async {
+    try {
+      print('🔄 Tentative de connexion avec Google...');
+
+      final response = await _supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: 'io.supabase.recetteplus://login-callback/',
       );
-      
-      debugPrint('📊 Réponse Supabase:');
-      debugPrint('  - Session: ${res.session != null ? "✅ Créée" : "❌ Nulle"}');
-      debugPrint('  - User: ${res.user != null ? "✅ ${res.user!.email}" : "❌ Nul"}');
-      
-      if (res.session != null && res.user != null) {
-        debugPrint('🎉 Connexion Supabase réussie pour ${res.user!.email}');
+
+      if (response) {
+        print('✅ Connexion Google réussie');
         return true;
       } else {
-        debugPrint('❌ Échec de la connexion Supabase - Session ou User nul');
-        _showErrorDialog(context, 'Erreur Supabase', 'Impossible de créer la session utilisateur');
+        print('❌ Connexion Google échouée');
         return false;
       }
-    } on Exception catch (e) {
-      debugPrint('💥 Exception lors de la connexion avec Google: $e');
-      
-      // Gestion spécifique des erreurs Google Sign In
-      if (e.toString().contains('ApiException: 10:')) {
-        _showErrorDialog(
-          context, 
-          'Erreur de configuration', 
-          'Configuration Google incorrecte.\n\nVérifiez :\n• L\'empreinte SHA-1 dans Google Cloud Console\n• Le package name (com.recetteplus.app)\n• Le Client ID dans le fichier .env'
-        );
-      } else if (e.toString().contains('sign_in_failed')) {
-        _showErrorDialog(
-          context, 
-          'Connexion échouée', 
-          'La connexion Google a échoué. Vérifiez votre configuration.'
-        );
+    } catch (e) {
+      print('❌ Erreur connexion Google: $e');
+      return false;
+    }
+  }
+
+  Future<bool> signInWithEmail(String email, String password) async {
+    try {
+      print('🔄 Tentative de connexion avec email...');
+
+      final response = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+
+      if (response.user != null) {
+        print('✅ Connexion email réussie');
+        return true;
       } else {
-        _showErrorDialog(
-          context, 
-          'Erreur inattendue', 
-          'Une erreur inattendue s\'est produite : ${e.toString()}'
-        );
+        print('❌ Connexion email échouée');
+        return false;
       }
-      return false;
-    } catch (e, stackTrace) {
-      debugPrint('💥 Erreur lors de la connexion avec Google: $e');
-      debugPrint('📍 Stack trace: $stackTrace');
-      _showErrorDialog(context, 'Erreur', 'Une erreur s\'est produite lors de la connexion');
+    } catch (e) {
+      print('❌ Erreur connexion email: $e');
       return false;
     }
   }
 
-  static void _showErrorDialog(BuildContext context, String title, String message) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(title),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  static Future<void> signOut() async {
+  Future<bool> signUpWithEmail(String email, String password) async {
     try {
-      debugPrint('🔄 Déconnexion en cours...');
-      
-      // Déconnecter de Google Sign In
-      final GoogleSignIn googleSignIn = GoogleSignIn();
-      await googleSignIn.signOut();
-      debugPrint('✅ Déconnexion Google terminée');
-      
-      // Déconnecter de Supabase
-      await supabase.auth.signOut();
-      debugPrint('✅ Déconnexion Supabase terminée');
-    } catch (e) {
-      debugPrint('❌ Erreur lors de la déconnexion: $e');
-    }
-  }
+      print('🔄 Tentative d\'inscription avec email...');
 
-  static Future<AuthResponse?> signInWithPassword({
-    required String email,
-    required String password,
-  }) async {
-    try {
-      return await supabase.auth.signInWithPassword(
+      final response = await _supabase.auth.signUp(
         email: email,
         password: password,
       );
-    } catch (e) {
-      debugPrint('❌ Erreur lors de la connexion: $e');
-      return null;
-    }
-  }
 
-  static Future<AuthResponse?> signUp({
-    required String email,
-    required String password,
-  }) async {
-    try {
-      return await supabase.auth.signUp(
-        email: email,
-        password: password,
-        emailRedirectTo: callbackUrl,
-      );
+      if (response.user != null) {
+        print('✅ Inscription email réussie');
+        return true;
+      } else {
+        print('❌ Inscription email échouée');
+        return false;
+      }
     } catch (e) {
-      debugPrint('❌ Erreur lors de l\'inscription: $e');
-      return null;
+      print('❌ Erreur inscription email: $e');
+      return false;
     }
-  }
-
-  static Future<void> resetPassword(String email) async {
-    await supabase.auth.resetPasswordForEmail(
-      email,
-      redirectTo: callbackUrl,
-    );
   }
 }

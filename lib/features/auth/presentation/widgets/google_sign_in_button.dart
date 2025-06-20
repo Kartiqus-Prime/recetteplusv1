@@ -18,8 +18,8 @@ class _GoogleSignInButtonState extends State<GoogleSignInButton> {
     });
 
     try {
-      final success = await AuthService.signInWithGoogle(context);
-      
+      final success = await AuthService.instance.signInWithGoogle(context);
+
       if (success) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -33,7 +33,8 @@ class _GoogleSignInButtonState extends State<GoogleSignInButton> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('La connexion avec Google a été annulée ou a échoué'),
+              content:
+                  Text('La connexion avec Google a été annulée ou a échoué'),
               backgroundColor: Colors.orange,
             ),
           );

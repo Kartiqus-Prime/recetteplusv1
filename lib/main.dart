@@ -36,6 +36,15 @@ Future<void> main() async {
 
     print('🔗 URL Supabase: ${supabaseUrl.substring(0, 20)}...');
 
+    // Vérifier la variable OneSignal
+    final oneSignalAppId = dotenv.env['ONE_SIGNAL_APP_ID'];
+    if (oneSignalAppId == null || oneSignalAppId.isEmpty) {
+      throw Exception('ONE_SIGNAL_APP_ID manquant dans le fichier .env');
+    }
+
+    final appIdPreview = oneSignalAppId.length > 8 ? '${oneSignalAppId.substring(0, 8)}...' : oneSignalAppId;
+    print('🔔 OneSignal App ID: $appIdPreview');
+
     // Initialiser Supabase
     print('🔧 Initialisation de Supabase...');
     await Supabase.initialize(
@@ -45,10 +54,10 @@ Future<void> main() async {
     );
     print('✅ Supabase initialisé avec succès');
 
-    // Initialiser les notifications push
-    print('📱 Initialisation des notifications push...');
+    // Initialiser les notifications push avec OneSignal
+    print('📱 Initialisation des notifications push OneSignal...');
     await PushNotificationService.initialize();
-    print('✅ Notifications push initialisées');
+    print('✅ Notifications push OneSignal initialisées');
 
     // Initialiser le service de notifications en arrière-plan
     print('🔄 Initialisation du service arrière-plan...');
@@ -75,16 +84,13 @@ class RecettePlusApp extends StatelessWidget {
   Widget build(BuildContext context) {
     // Configurer le callback de navigation pour les notifications
     PushNotificationService.onNotificationTap = (String route) {
-      // Ici vous pouvez gérer la navigation globale
       print('🔗 Navigation demandée vers: $route');
-      // Vous pouvez utiliser un GlobalKey<NavigatorState> pour naviguer
     };
 
     return ChangeNotifierProvider(
       create: (context) => ThemeProvider(),
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, child) {
-          // Afficher un écran de chargement pendant que le thème se charge
           if (themeProvider.isLoading) {
             return MaterialApp(
               home: const LoadingScreen(),
@@ -107,7 +113,6 @@ class RecettePlusApp extends StatelessWidget {
   }
 }
 
-// Widget séparé pour l'écran de chargement
 class LoadingScreen extends StatelessWidget {
   const LoadingScreen({super.key});
 
@@ -146,7 +151,6 @@ class LoadingScreen extends StatelessWidget {
   }
 }
 
-// Widget séparé pour gérer l'authentification
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
@@ -175,7 +179,6 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         print('📱 App au premier plan');
-        // Traiter les notifications en attente quand l'app revient au premier plan
         _processBackgroundNotifications();
         break;
       case AppLifecycleState.paused:
@@ -189,7 +192,6 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     }
   }
 
-  /// Traiter les notifications en arrière-plan
   Future<void> _processBackgroundNotifications() async {
     try {
       await BackgroundNotificationService.processNotifications();
@@ -198,45 +200,34 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     }
   }
 
-  /// Initialiser les notifications après l'authentification
   void _initializeNotificationsAfterAuth() {
-    // Écouter les changements d'état d'authentification
     supabase.auth.onAuthStateChange.listen((data) {
       final session = data.session;
       if (session != null) {
-        // Utilisateur connecté, initialiser les notifications temps réel
-        print(
-            '👤 Utilisateur connecté, initialisation notifications temps réel...');
+        print('👤 Utilisateur connecté, initialisation notifications temps réel...');
         _setupRealtimeNotifications();
       } else {
-        // Utilisateur déconnecté, nettoyer les notifications
         print('👤 Utilisateur déconnecté, nettoyage notifications...');
         _cleanupNotifications();
       }
     });
   }
 
-  /// Configurer les notifications temps réel
   Future<void> _setupRealtimeNotifications() async {
     try {
-      // Petit délai pour s'assurer que l'utilisateur est bien connecté
       await Future.delayed(const Duration(seconds: 1));
-
       final notificationsService = NotificationsService.instance;
       await notificationsService.initializeRealtimeNotifications();
-
       print('✅ Notifications temps réel configurées');
     } catch (e) {
       print('❌ Erreur configuration notifications temps réel: $e');
     }
   }
 
-  /// Nettoyer les notifications
   Future<void> _cleanupNotifications() async {
     try {
       final notificationsService = NotificationsService.instance;
       await notificationsService.dispose();
-
       print('🧹 Notifications nettoyées');
     } catch (e) {
       print('❌ Erreur nettoyage notifications: $e');
@@ -248,17 +239,13 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     return StreamBuilder(
       stream: supabase.auth.onAuthStateChange,
       builder: (context, snapshot) {
-        // Gestion des erreurs de stream
         if (snapshot.hasError) {
-          print(
-              '❌ Erreur dans le stream d\'authentification: ${snapshot.error}');
+          print('❌ Erreur dans le stream d\'authentification: ${snapshot.error}');
           return ErrorScreen(error: snapshot.error.toString());
         }
 
-        // Vérification de l'état de la session
         final session = supabase.auth.currentSession;
-        print(
-            '🔐 Session actuelle: ${session != null ? 'Connecté' : 'Non connecté'}');
+        print('🔐 Session actuelle: ${session != null ? 'Connecté' : 'Non connecté'}');
 
         if (session != null) {
           return const MainNavigation();
@@ -270,7 +257,6 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   }
 }
 
-// Application d'erreur simple pour afficher les erreurs d'initialisation
 class ErrorApp extends StatelessWidget {
   final String error;
 
@@ -287,34 +273,16 @@ class ErrorApp extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: Colors.red,
-                ),
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
                 const SizedBox(height: 20),
                 const Text(
                   'Erreur d\'initialisation',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.red,
-                  ),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.red),
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  error,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16),
-                ),
+                Text(error, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
                 const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: () {
-                    // Redémarrer l'application
-                    main();
-                  },
-                  child: const Text('Réessayer'),
-                ),
+                ElevatedButton(onPressed: () => main(), child: const Text('Réessayer')),
               ],
             ),
           ),
@@ -324,7 +292,6 @@ class ErrorApp extends StatelessWidget {
   }
 }
 
-// Écran d'erreur pour les erreurs de stream
 class ErrorScreen extends StatelessWidget {
   final String error;
 
@@ -340,34 +307,19 @@ class ErrorScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.warning_outlined,
-                size: 64,
-                color: Colors.orange,
-              ),
+              const Icon(Icons.warning_outlined, size: 64, color: Colors.orange),
               const SizedBox(height: 20),
               const Text(
                 'Erreur d\'authentification',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.orange,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.orange),
               ),
               const SizedBox(height: 10),
-              Text(
-                error,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16),
-              ),
+              Text(error, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
               const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: () {
-                  // Redémarrer l'application
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const AuthPage()),
-                  );
-                },
+                onPressed: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const AuthPage()),
+                ),
                 child: const Text('Aller à la connexion'),
               ),
             ],

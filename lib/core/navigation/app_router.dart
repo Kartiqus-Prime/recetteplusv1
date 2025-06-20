@@ -23,8 +23,8 @@ class AppRouter {
         );
       case '/products':
         return MaterialPageRoute(
-          builder: (_) => const MainNavigation(initialIndex: 3),
-          settings: const RouteSettings(name: '/products'),
+          builder: (_) => const MainNavigation(initialIndex: 2), // Recettes
+          settings: const RouteSettings(name: '/recipes'),
         );
       case '/shorts':
         return MaterialPageRoute(
